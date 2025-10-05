@@ -4,4 +4,5 @@ chroma_db/
 chroma_langchain_db/
 .history
 .venv
-*db.sqlite3*
+*db.sqlite3
+docs/*

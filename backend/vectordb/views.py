@@ -1,0 +1,672 @@
+import logging
+import hashlib
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.pagination import PageNumberPagination
+from celery.result import AsyncResult
+from django.db.models import Q
+
+from .models import VectorDBTask, ModuleVectorStore, QueryLog
+from .serializers import (
+    VectorDBTaskSerializer, ModuleVectorStoreSerializer, QueryLogSerializer,
+    VectorDBCreateSerializer, RAGQuerySerializer, RAGResponseSerializer
+)
+from .tasks import create_vectordb_for_module_task
+from .services import VectorDBService, RAGService
+from rag_app.models import Module, Project
+
+logger = logging.getLogger(__name__)
+
+
+class StandardResultsSetPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
+class CreateModuleVectorDBView(APIView):
+    """Create vector database for a module (async)"""    
+    def post(self, request):
+        """Start vector DB creation for a module"""
+        try:
+            module = get_object_or_404(Module, id=request.data.get('module_id'), is_active=True)
+            serializer = VectorDBCreateSerializer(data=request.data)
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+            module_id = serializer.validated_data['module_id']
+            force_recreate = serializer.validated_data.get('force_recreate', False)
+            chunk_size = serializer.validated_data.get('chunk_size', 1000)
+            chunk_overlap = serializer.validated_data.get('chunk_overlap', 200)
+            embedding_model = serializer.validated_data.get('embedding_model', '')
+            
+            # Validate module exists and user has access
+            module = get_object_or_404(Module, id=module_id, is_active=True)
+            
+            # Check if there's already a running task for this module
+            existing_task = VectorDBTask.objects.filter(
+                module=module,
+                status__in=['pending', 'processing']
+            ).first()
+            
+            if existing_task:
+                return Response({
+                    "error": "Vector DB creation already in progress for this module",
+                    "existing_task_id": str(existing_task.id),
+                    "status_url": f"/api/vectordb/status/{existing_task.task_id}/"
+                }, status=status.HTTP_409_CONFLICT)
+            
+            # Create task record
+            task_obj = VectorDBTask.objects.create(
+                module=module,
+                created_by=request.user,
+                force_recreate=force_recreate,
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+                embedding_model=embedding_model,
+                status='pending'
+            )
+            
+            # Start Celery task
+            celery_task = create_vectordb_for_module_task.delay(
+                str(task_obj.id),
+                module_id,
+                force_recreate,
+                chunk_size,
+                chunk_overlap,
+                embedding_model
+            )
+            
+            # Update task with Celery task ID
+            task_obj.task_id = celery_task.id
+            task_obj.save(update_fields=['task_id'])
+            
+            return Response({
+                "success": True,
+                "message": f"Vector DB creation started for module: {module.name}",
+                "task_id": celery_task.id,
+                "task_record_id": str(task_obj.id),
+                "module_id": module_id,
+                "module_name": module.name,
+                "status_url": f"/api/vectordb/status/{celery_task.id}/",
+                "estimated_documents": module.documents.filter(active=True).count()
+            }, status=status.HTTP_202_ACCEPTED)
+            
+        except Exception as e:
+            logger.error(f"Failed to start vector DB creation: {str(e)}")
+            return Response(
+                {"error": f"Failed to start vector DB creation: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class VectorDBTaskStatusView(APIView):
+    """Get status and progress of vector DB creation task"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, task_id):
+        """Get detailed task status and progress"""
+        try:
+            # Get Celery task result
+            celery_result = AsyncResult(task_id)
+            
+            # Get task from database
+            try:
+                task_obj = VectorDBTask.objects.get(task_id=task_id)
+            except VectorDBTask.DoesNotExist:
+                return Response(
+                    {"error": "Task not found"}, 
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Prepare response data
+            response_data = {
+                "task_id": task_id,
+                "task_record_id": str(task_obj.id),
+                "module_id": task_obj.module.id,
+                "module_name": task_obj.module.name,
+                "project_name": task_obj.module.project.name,
+                "status": task_obj.status,
+                "progress_percentage": task_obj.progress_percentage,
+                "current_step": task_obj.current_step,
+                "current_document": task_obj.current_document,
+                "total_documents": task_obj.total_documents,
+                "processed_documents": task_obj.processed_documents,
+                "successful_documents": task_obj.successful_documents,
+                "failed_documents": task_obj.failed_documents,
+                "created_at": task_obj.created_at,
+                "started_at": task_obj.started_at,
+                "completed_at": task_obj.completed_at,
+                "duration": str(task_obj.duration) if task_obj.duration else None,
+                "is_running": task_obj.is_running,
+                "is_completed": task_obj.is_completed,
+                "created_by": task_obj.created_by.username,
+                "force_recreate": task_obj.force_recreate,
+                "chunk_size": task_obj.chunk_size,
+                "chunk_overlap": task_obj.chunk_overlap
+            }
+            
+            # Add Celery-specific information
+            if celery_result.state == 'PENDING':
+                response_data["celery_status"] = "Task is waiting to be processed"
+                
+            elif celery_result.state == 'PROGRESS':
+                celery_info = celery_result.info or {}
+                response_data["celery_status"] = celery_info.get('status', 'Processing...')
+                response_data["celery_progress"] = celery_info.get('progress', 0)
+                
+            elif celery_result.state == 'SUCCESS':
+                response_data["celery_status"] = "Task completed successfully"
+                if celery_result.info:
+                    response_data["celery_result"] = celery_result.info
+                    
+            elif celery_result.state == 'FAILURE':
+                response_data["celery_status"] = "Task failed"
+                response_data["celery_error"] = str(celery_result.info)
+            
+            # Add database-specific information
+            if task_obj.result:
+                response_data["result"] = task_obj.result
+                
+            if task_obj.error_message:
+                response_data["error_message"] = task_obj.error_message
+            
+            return Response(response_data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Failed to get task status: {str(e)}")
+            return Response(
+                {"error": f"Failed to get task status: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class VectorDBTaskCancelView(APIView):
+    """Cancel a running vector DB creation task"""
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request, task_id):
+        """Cancel the specified task"""
+        try:
+            # Get task from database
+            try:
+                task_obj = VectorDBTask.objects.get(task_id=task_id)
+            except VectorDBTask.DoesNotExist:
+                return Response(
+                    {"error": "Task not found"}, 
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Check if user has permission to cancel (task creator or admin)
+            if task_obj.created_by != request.user and not request.user.is_staff:
+                return Response(
+                    {"error": "Permission denied"}, 
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Check if task is still running
+            if not task_obj.is_running:
+                return Response(
+                    {"error": "Task is not running and cannot be cancelled"}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Revoke Celery task
+            from celery import current_app
+            current_app.control.revoke(task_id, terminate=True)
+            
+            # Update database record
+            task_obj.status = 'cancelled'
+            task_obj.completed_at = timezone.now()
+            task_obj.error_message = f"Cancelled by user: {request.user.username}"
+            task_obj.save()
+            
+            # Update module vector store status if needed
+            try:
+                vector_store = ModuleVectorStore.objects.get(module=task_obj.module)
+                if vector_store.status == 'indexing':
+                    vector_store.status = 'empty'
+                    vector_store.save()
+            except ModuleVectorStore.DoesNotExist:
+                pass
+            
+            return Response({
+                "success": True,
+                "message": "Task cancelled successfully",
+                "task_id": task_id,
+                "module_name": task_obj.module.name
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Failed to cancel task: {str(e)}")
+            return Response(
+                {"error": f"Failed to cancel task: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class VectorDBTaskListView(APIView):
+    """List vector DB tasks with filtering and pagination"""
+    permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
+    
+    def get(self, request):
+        """Get list of vector DB tasks"""
+        try:
+            queryset = VectorDBTask.objects.select_related(
+                'module', 'module__project', 'created_by'
+            )
+            
+            # Filter by status
+            status_filter = request.query_params.get('status')
+            if status_filter:
+                queryset = queryset.filter(status=status_filter)
+            
+            # Filter by module
+            module_id = request.query_params.get('module_id')
+            if module_id:
+                queryset = queryset.filter(module_id=module_id)
+            
+            # Filter by project
+            project_id = request.query_params.get('project_id')
+            if project_id:
+                queryset = queryset.filter(module__project_id=project_id)
+            
+            # Filter by user (show only user's tasks unless admin)
+            if not request.user.is_staff:
+                queryset = queryset.filter(created_by=request.user)
+            
+            # Order by creation date (newest first)
+            queryset = queryset.order_by('-created_at')
+            
+            # Paginate
+            paginator = self.pagination_class()
+            page = paginator.paginate_queryset(queryset, request)
+            
+            if page is not None:
+                serializer = VectorDBTaskSerializer(page, many=True)
+                return paginator.get_paginated_response(serializer.data)
+            
+            serializer = VectorDBTaskSerializer(queryset, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Failed to get task list: {str(e)}")
+            return Response(
+                {"error": f"Failed to get task list: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class ModuleVectorStoreListView(APIView):
+    """List module vector stores"""
+    permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
+    
+    def get(self, request):
+        """Get list of module vector stores"""
+        try:
+            queryset = ModuleVectorStore.objects.select_related(
+                'module', 'module__project'
+            )
+            
+            # Filter by status
+            status_filter = request.query_params.get('status')
+            if status_filter:
+                queryset = queryset.filter(status=status_filter)
+            
+            # Filter by module
+            module_id = request.query_params.get('module_id')
+            if module_id:
+                queryset = queryset.filter(module_id=module_id)
+            
+            # Filter by project
+            project_id = request.query_params.get('project_id')
+            if project_id:
+                queryset = queryset.filter(module__project_id=project_id)
+            
+            # Order by last indexed date
+            queryset = queryset.order_by('-last_indexed_at', '-created_at')
+            
+            # Paginate
+            paginator = self.pagination_class()
+            page = paginator.paginate_queryset(queryset, request)
+            
+            if page is not None:
+                serializer = ModuleVectorStoreSerializer(page, many=True)
+                return paginator.get_paginated_response(serializer.data)
+            
+            serializer = ModuleVectorStoreSerializer(queryset, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Failed to get vector store list: {str(e)}")
+            return Response(
+                {"error": f"Failed to get vector store list: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class ModuleVectorStoreDetailView(APIView):
+    """Get details of a specific module vector store"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, module_id):
+        """Get vector store details for a module"""
+        try:
+            module = get_object_or_404(Module, id=module_id, is_active=True)
+            
+            try:
+                vector_store = ModuleVectorStore.objects.get(module=module)
+                serializer = ModuleVectorStoreSerializer(vector_store)
+                
+                # Add additional information
+                data = serializer.data
+                data['recent_tasks'] = VectorDBTaskSerializer(
+                    VectorDBTask.objects.filter(module=module).order_by('-created_at')[:5],
+                    many=True
+                ).data
+                
+                return Response(data, status=status.HTTP_200_OK)
+                
+            except ModuleVectorStore.DoesNotExist:
+                return Response({
+                    "module_id": module_id,
+                    "module_name": module.name,
+                    "status": "no_vector_store",
+                    "message": "No vector store found for this module",
+                    "recent_tasks": VectorDBTaskSerializer(
+                        VectorDBTask.objects.filter(module=module).order_by('-created_at')[:5],
+                        many=True
+                    ).data
+                }, status=status.HTTP_200_OK)
+                
+        except Exception as e:
+            logger.error(f"Failed to get vector store details: {str(e)}")
+            return Response(
+                {"error": f"Failed to get vector store details: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def delete(self, request, module_id):
+        """Delete vector store for a module"""
+        try:
+            module = get_object_or_404(Module, id=module_id, is_active=True)
+            
+            try:
+                vector_store = ModuleVectorStore.objects.get(module=module)
+                
+                # Check for running tasks
+                running_tasks = VectorDBTask.objects.filter(
+                    module=module,
+                    status__in=['pending', 'processing']
+                )
+                
+                if running_tasks.exists():
+                    return Response({
+                        "error": "Cannot delete vector store while tasks are running",
+                        "running_tasks": [str(task.id) for task in running_tasks]
+                    }, status=status.HTTP_409_CONFLICT)
+                
+                # Delete vector store data
+                vector_service = VectorDBService()
+                vector_service._delete_collection(vector_store.collection_name)
+                
+                # Delete database record
+                vector_store.delete()
+                
+                return Response({
+                    "success": True,
+                    "message": f"Vector store deleted for module: {module.name}"
+                }, status=status.HTTP_200_OK)
+                
+            except ModuleVectorStore.DoesNotExist:
+                return Response(
+                    {"error": "Vector store not found for this module"}, 
+                    status=status.HTTP_404_NOT_FOUND
+                )
+                
+        except Exception as e:
+            logger.error(f"Failed to delete vector store: {str(e)}")
+            return Response(
+                {"error": f"Failed to delete vector store: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class RAGQueryView(APIView):
+    """Handle RAG queries against module vector stores"""
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        """Process RAG query"""
+        try:
+            serializer = RAGQuerySerializer(data=request.data)
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+            query = serializer.validated_data['query']
+            module_id = serializer.validated_data['module_id']
+            max_results = serializer.validated_data.get('max_results', 5)
+            similarity_threshold = serializer.validated_data.get('similarity_threshold', 0.7)
+            include_metadata = serializer.validated_data.get('include_metadata', True)
+            
+            # Get module
+            module = get_object_or_404(Module, id=module_id, is_active=True)
+            
+            # Check if vector store exists and is ready
+            try:
+                vector_store = ModuleVectorStore.objects.get(module=module, status='ready')
+            except ModuleVectorStore.DoesNotExist:
+                return Response({
+                    "error": "Vector store not ready for this module",
+                    "module_name": module.name,
+                    "suggestion": "Please create vector database for this module first"
+                }, status=status.HTTP_412_PRECONDITION_FAILED)
+            
+            # Process RAG query
+            rag_service = RAGService()
+            result = rag_service.process_query(
+                query=query,
+                project=module.project,
+                module=module,
+                user=request.user,
+                max_results=max_results
+            )
+            
+            response_serializer = RAGResponseSerializer(data=result)
+            if response_serializer.is_valid():
+                return Response(response_serializer.validated_data, status=status.HTTP_200_OK)
+            else:
+                return Response(result, status=status.HTTP_200_OK)
+                
+        except Exception as e:
+            logger.error(f"RAG query processing failed: {str(e)}")
+            return Response(
+                {"error": f"Query processing failed: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class QueryLogListView(APIView):
+    """List query logs with filtering"""
+    permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
+    
+    def get(self, request):
+        """Get query logs"""
+        try:
+            queryset = QueryLog.objects.select_related('user', 'module', 'module__project')
+            
+            # Filter by module
+            module_id = request.query_params.get('module_id')
+            if module_id:
+                queryset = queryset.filter(module_id=module_id)
+            
+            # Filter by user (show only user's queries unless admin)
+            if not request.user.is_staff:
+                queryset = queryset.filter(user=request.user)
+            
+            # Filter by date range
+            date_from = request.query_params.get('date_from')
+            date_to = request.query_params.get('date_to')
+            if date_from:
+                queryset = queryset.filter(created_at__gte=date_from)
+            if date_to:
+                queryset = queryset.filter(created_at__lte=date_to)
+            
+            # Search in query text
+            search = request.query_params.get('search')
+            if search:
+                queryset = queryset.filter(
+                    Q(query_text__icontains=search) |
+                    Q(response_text__icontains=search)
+                )
+            
+            # Order by creation date (newest first)
+            queryset = queryset.order_by('-created_at')
+            
+            # Paginate
+            paginator = self.pagination_class()
+            page = paginator.paginate_queryset(queryset, request)
+            
+            if page is not None:
+                serializer = QueryLogSerializer(page, many=True)
+                return paginator.get_paginated_response(serializer.data)
+            
+            serializer = QueryLogSerializer(queryset, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Failed to get query logs: {str(e)}")
+            return Response(
+                {"error": f"Failed to get query logs: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class QueryLogDetailView(APIView):
+    """Get details of a specific query log"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, query_id):
+        """Get query log details"""
+        try:
+            queryset = QueryLog.objects.select_related('user', 'module', 'module__project')
+            
+            # Filter by user unless admin
+            if not request.user.is_staff:
+                queryset = queryset.filter(user=request.user)
+            
+            query_log = get_object_or_404(queryset, id=query_id)
+            serializer = QueryLogSerializer(query_log)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Failed to get query log details: {str(e)}")
+            return Response(
+                {"error": f"Failed to get query log details: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def patch(self, request, query_id):
+        """Update query log (for user feedback)"""
+        try:
+            queryset = QueryLog.objects.select_related('user', 'module')
+            query_log = get_object_or_404(queryset, id=query_id, user=request.user)
+            
+            # Only allow updating rating and feedback
+            allowed_fields = ['user_rating', 'user_feedback']
+            update_data = {k: v for k, v in request.data.items() if k in allowed_fields}
+            
+            if not update_data:
+                return Response(
+                    {"error": "No valid fields to update"}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            serializer = QueryLogSerializer(query_log, data=update_data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data, status=status.HTTP_200_OK)
+            else:
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                
+        except Exception as e:
+            logger.error(f"Failed to update query log: {str(e)}")
+            return Response(
+                {"error": f"Failed to update query log: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class VectorDBStatsView(APIView):
+    """Get vector database statistics"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        """Get comprehensive vector DB statistics"""
+        try:
+            # Overall statistics
+            total_vector_stores = ModuleVectorStore.objects.count()
+            ready_vector_stores = ModuleVectorStore.objects.filter(status='ready').count()
+            
+            # Task statistics
+            total_tasks = VectorDBTask.objects.count()
+            completed_tasks = VectorDBTask.objects.filter(status='completed').count()
+            failed_tasks = VectorDBTask.objects.filter(status='failed').count()
+            running_tasks = VectorDBTask.objects.filter(status__in=['pending', 'processing']).count()
+            
+            # Query statistics
+            total_queries = QueryLog.objects.count()
+            user_queries = QueryLog.objects.filter(user=request.user).count()
+            
+            # Recent activity
+            recent_tasks = VectorDBTaskSerializer(
+                VectorDBTask.objects.select_related('module', 'created_by')
+                .order_by('-created_at')[:10],
+                many=True
+            ).data
+            
+            recent_queries = QueryLogSerializer(
+                QueryLog.objects.filter(user=request.user)
+                .select_related('module')
+                .order_by('-created_at')[:10],
+                many=True
+            ).data
+            
+            # Vector store breakdown by status
+            vector_store_stats = {}
+            for status_choice in ModuleVectorStore.STATUS_CHOICES:
+                status_key = status_choice[0]
+                count = ModuleVectorStore.objects.filter(status=status_key).count()
+                vector_store_stats[status_key] = count
+            
+            return Response({
+                "overview": {
+                    "total_vector_stores": total_vector_stores,
+                    "ready_vector_stores": ready_vector_stores,
+                    "total_tasks": total_tasks,
+                    "completed_tasks": completed_tasks,
+                    "failed_tasks": failed_tasks,
+                    "running_tasks": running_tasks,
+                    "total_queries": total_queries,
+                    "user_queries": user_queries
+                },
+                "vector_store_stats": vector_store_stats,
+                "recent_activity": {
+                    "recent_tasks": recent_tasks,
+                    "recent_queries": recent_queries
+                }
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Failed to get vector DB stats: {str(e)}")
+            return Response(
+                {"error": f"Failed to get statistics: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
