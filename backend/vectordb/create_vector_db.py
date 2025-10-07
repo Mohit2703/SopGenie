@@ -131,10 +131,10 @@ class CreateVectorStore:
         self.id_key = "doc_id"
         self.store = InMemoryStore()
 
-    def load_vector_store(self, collection_name, persist_directory):
+    def load_vector_store(self, collection_name, persist_directory, embedding_model_name="all-MiniLM-L6-v2"):
         self.vector_store = Chroma(
             collection_name=collection_name,
-            embedding_function=self.embeddings,
+            embedding_function=HuggingFaceEmbeddings(model_name=embedding_model_name),
             persist_directory=persist_directory,
         )
         self.retriever = MultiVectorRetriever(
@@ -236,8 +236,7 @@ class CreateVectorStore:
 
 def main_create_vector_db(file_path, model_name, collection_name, persist_directory):
     create_vector_store = CreateVectorStore(file_path)
-    create_vector_store.embeddings = HuggingFaceEmbeddings(model_name=model_name)
-    create_vector_store.load_vector_store(collection_name=collection_name, persist_directory=persist_directory)
+    create_vector_store.load_vector_store(collection_name=collection_name, persist_directory=persist_directory, embedding_model_name=model_name)
     create_vector_store.create_vector_store()
 
 if __name__ == "__main__":
