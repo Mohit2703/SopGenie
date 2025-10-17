@@ -18,12 +18,11 @@ class VectorDBTask(models.Model):
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task_id = models.CharField(max_length=255, unique=True, db_index=True)
-    
-    # Module-based vector creation
-    module = models.ForeignKey(
-        'rag_app.Module', 
+
+    module_vector_store = models.ForeignKey(
+        'ModuleVectorStore', 
         on_delete=models.CASCADE,
-        related_name='vector_tasks'
+        related_name='tasks',
     )
     
     # Task details
@@ -58,22 +57,22 @@ class VectorDBTask(models.Model):
     )
     
     # Processing options
-    force_recreate = models.BooleanField(default=False)
     chunk_size = models.IntegerField(default=1000)
     chunk_overlap = models.IntegerField(default=200)
     embedding_model = models.CharField(max_length=255, blank=True)
-    
     class Meta:
         db_table = 'vectordb_task'
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['task_id']),
-            models.Index(fields=['status', 'created_at']),
-            models.Index(fields=['module', '-created_at']),
+            models.Index(fields=['status', '-created_at']),
+            models.Index(fields=['module_vector_store', '-created_at']),  # Fixed
+            models.Index(fields=['created_by', '-created_at']),
         ]
     
     def __str__(self):
-        return f"VectorDB Task {self.task_id} - Module: {self.module.name} - {self.status}"
+        # Fixed to use module_vector_store
+        return f"VectorDB Task {self.task_id} - Module: {self.module_vector_store.module.name} - {self.status}"
     
     @property
     def duration(self):

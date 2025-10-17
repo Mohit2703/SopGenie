@@ -19,6 +19,7 @@ os.environ['LANGCHAIN_TRACING_V2'] = 'true'
 os.environ['LANGCHAIN_ENDPOINT'] = 'https://api.smith.langchain.com'
 os.environ['LANGCHAIN_API_KEY'] = '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'
 os.environ["MISTRAL_API_KEY"] = "hrDF1J8v9kDfT9UZXss6oCXoJk46AZNO"
+# AlDrAPD0LXNXU4xMMXaUFIiG5KvWgNUX
 llm = init_chat_model("mistral-small-latest", model_provider="mistralai", temperature=0.0)
 output_path = "./content"
 file_path = "./docs/ERCS_4G_PM_SOP.pdf"

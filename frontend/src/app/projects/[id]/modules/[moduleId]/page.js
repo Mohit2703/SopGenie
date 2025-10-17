@@ -4,7 +4,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import DocumentUpload from '@/components/documents/DocumentUpload';
 import DocumentList from '@/components/documents/DocumentList';
-import RAGQueryInterface from '@/components/common/RAGQueryInterface';
+import VectorDBManager from '@/components/vectordb/VectorDBManager';
 import api from '@/lib/api';
 import { Folder, ArrowLeft } from 'lucide-react';
 
@@ -143,13 +143,12 @@ export default function ModuleDetailPage() {
             </div>
           </div>
 
-          {/* Right Column - RAG Interface */}
+          {/* Right Column - Vector DB Manager */}
           <div className="lg:col-span-1">
-            <div className="sticky top-8">
-              <RAGQueryInterface 
-                projectId={projectId} 
-                moduleId={moduleId}
-                title={`Ask about ${module.name}`}
+            <div className="sticky top-8 space-y-6">
+              <VectorDBManager 
+                moduleId={moduleId} 
+                moduleName={module.name}
               />
             </div>
           </div>

@@ -34,51 +34,54 @@ class CreateModuleVectorDBView(APIView):
         """Start vector DB creation for a module"""
         try:
             module = get_object_or_404(Module, id=request.data.get('module_id'), is_active=True)
-            serializer = VectorDBCreateSerializer(data=request.data)
-            if not serializer.is_valid():
-                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
             
-            module_id = serializer.validated_data['module_id']
-            force_recreate = serializer.validated_data.get('force_recreate', False)
-            chunk_size = serializer.validated_data.get('chunk_size', 1000)
-            chunk_overlap = serializer.validated_data.get('chunk_overlap', 200)
-            embedding_model = serializer.validated_data.get('embedding_model', '')
-            
-            # Validate module exists and user has access
-            module = get_object_or_404(Module, id=module_id, is_active=True)
-            
-            # Check if there's already a running task for this module
-            existing_task = VectorDBTask.objects.filter(
-                module=module,
+            ### check if ModuleVectorStore already exists for this module otherwise create it
+            module_vector_store = ModuleVectorStore.objects.filter(module=module).first()
+
+            if not module_vector_store:
+                persistence_directory = f"vector_data/project_{module.project.id}/"
+                module_vector_store = ModuleVectorStore.objects.create(
+                    module=module,
+                    collection_name=f"module_{module.id}_vector_store",
+                    persistence_directory=persistence_directory, 
+                    status='empty',
+                    embedding_model=request.data.get('embedding_model', 'sentence-transformers/all-MiniLM-L6-v2'),
+                    embedding_dimension=request.data.get('embedding_dimension', 384),
+                    chunk_size=request.data.get('chunk_size', 1000),
+                    chunk_overlap=request.data.get('chunk_overlap', 200),
+                    config=request.data.get('config', {})
+                )
+
+            pending_processing_tasks = VectorDBTask.objects.filter(
+                module_vector_store=module_vector_store,
                 status__in=['pending', 'processing']
-            ).first()
-            
-            if existing_task:
+            )
+
+            if pending_processing_tasks.exists():
                 return Response({
                     "error": "Vector DB creation already in progress for this module",
-                    "existing_task_id": str(existing_task.id),
-                    "status_url": f"/api/vectordb/status/{existing_task.task_id}/"
+                    "existing_task_id": str(pending_processing_tasks.first().id),
+                    "status_url": f"/api/vectordb/status/{pending_processing_tasks.first().task_id}/"
                 }, status=status.HTTP_409_CONFLICT)
             
-            # Create task record
+            ## create new task
             task_obj = VectorDBTask.objects.create(
-                module=module,
+                module_vector_store=module_vector_store,
+                current_step='initializing',
+                total_documents=module.documents.filter(active=True).count(),
                 created_by=request.user,
-                force_recreate=force_recreate,
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap,
-                embedding_model=embedding_model,
-                status='pending'
+                chunk_size=module_vector_store.chunk_size,
+                chunk_overlap=module_vector_store.chunk_overlap,
+                embedding_model=module_vector_store.embedding_model
             )
             
             # Start Celery task
             celery_task = create_vectordb_for_module_task.delay(
                 str(task_obj.id),
-                module_id,
-                force_recreate,
-                chunk_size,
-                chunk_overlap,
-                embedding_model
+                str(module_vector_store.id),
+                task_obj.chunk_size,
+                task_obj.chunk_overlap,
+                task_obj.embedding_model
             )
             
             # Update task with Celery task ID
@@ -90,8 +93,9 @@ class CreateModuleVectorDBView(APIView):
                 "message": f"Vector DB creation started for module: {module.name}",
                 "task_id": celery_task.id,
                 "task_record_id": str(task_obj.id),
-                "module_id": module_id,
-                "module_name": module.name,
+                "module_id": module_vector_store.module.id,
+                "module_vector_id": module_vector_store.id,
+                "module_name": module_vector_store.module.name,
                 "status_url": f"/api/vectordb/status/{celery_task.id}/",
                 "estimated_documents": module.documents.filter(active=True).count()
             }, status=status.HTTP_202_ACCEPTED)
@@ -258,7 +262,7 @@ class VectorDBTaskListView(APIView):
         """Get list of vector DB tasks"""
         try:
             queryset = VectorDBTask.objects.select_related(
-                'module', 'module__project', 'created_by'
+                'module_vector_store__module', 'module_vector_store__module__project', 'created_by'
             )
             
             # Filter by status
@@ -269,12 +273,12 @@ class VectorDBTaskListView(APIView):
             # Filter by module
             module_id = request.query_params.get('module_id')
             if module_id:
-                queryset = queryset.filter(module_id=module_id)
+                queryset = queryset.filter(module_vector_store__module_id=module_id)
             
             # Filter by project
             project_id = request.query_params.get('project_id')
             if project_id:
-                queryset = queryset.filter(module__project_id=project_id)
+                queryset = queryset.filter(module_vector_store__module__project_id=project_id)
             
             # Filter by user (show only user's tasks unless admin)
             if not request.user.is_staff:
@@ -352,9 +356,6 @@ class ModuleVectorStoreListView(APIView):
 
 
 class ModuleVectorStoreDetailView(APIView):
-    """Get details of a specific module vector store"""
-    permission_classes = [IsAuthenticated]
-    
     def get(self, request, module_id):
         """Get vector store details for a module"""
         try:
@@ -367,7 +368,7 @@ class ModuleVectorStoreDetailView(APIView):
                 # Add additional information
                 data = serializer.data
                 data['recent_tasks'] = VectorDBTaskSerializer(
-                    VectorDBTask.objects.filter(module=module).order_by('-created_at')[:5],
+                    VectorDBTask.objects.filter(module_vector_store=vector_store).order_by('-created_at')[:5],
                     many=True
                 ).data
                 
@@ -379,10 +380,7 @@ class ModuleVectorStoreDetailView(APIView):
                     "module_name": module.name,
                     "status": "no_vector_store",
                     "message": "No vector store found for this module",
-                    "recent_tasks": VectorDBTaskSerializer(
-                        VectorDBTask.objects.filter(module=module).order_by('-created_at')[:5],
-                        many=True
-                    ).data
+                    "recent_tasks": []
                 }, status=status.HTTP_200_OK)
                 
         except Exception as e:

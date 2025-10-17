@@ -3,6 +3,7 @@ from django.conf import settings
 import os
 import uuid
 from http import HTTPStatus
+from rest_framework.permissions import AllowAny
 from django.http import FileResponse, Http404  # Correct import - from django.http
 from django.shortcuts import get_object_or_404, redirect
 from django.views import View
@@ -25,6 +26,7 @@ def generate_unique_filename(instance, filename):
     unique_id = uuid.uuid4().hex[:8]  # Use uuid4 for random UUID
     return f"modules/{instance.module.id}/{unique_id}_{filename}"
 class UserView(APIView):
+    permission_classes = [AllowAny]
     def post(self, request):
         serializer = UserSerializer(data=request.data)
         if serializer.is_valid():
@@ -67,6 +69,7 @@ class ProjectView(APIView):
         serializer = ProjectSerializer(data=request.data)
         members = request.data.get('users', [])  # list of user ids
         if serializer.is_valid():
+            print('user: ', request.user)
             project = serializer.save(admin=request.user)  # save without users
             print(project)
             if members:
@@ -141,6 +144,7 @@ class ProjectView(APIView):
     
 class ModuleView(APIView):
     def post(self, request, project_id):
+        print('project_id: ', project_id)
         if not project_id:
             return Response({"error": "Project ID is required"}, status=HTTPStatus.BAD_REQUEST)
 
@@ -149,7 +153,9 @@ class ModuleView(APIView):
 
         # prepare data for serializer
         data = request.data.copy()
-        data["project"] = project.id
+        data["project_id"] = project.id
+
+        print('data: ', data)
 
         serializer = ModuleSerializer(data=data)
         if serializer.is_valid():
@@ -164,8 +170,7 @@ class ModuleView(APIView):
             complete_path = os.path.join(media, module.folder_path)
             os.makedirs(complete_path, exist_ok=True)
 
-            module.collection_name = f"{project.name.lower().replace(' ', '_')}_module_{module.id}"
-            module.save(update_fields=["folder_path", "collection_name"])
+            module.save(update_fields=["folder_path"])
 
             return Response(ModuleSerializer(module).data, status=HTTPStatus.CREATED)
 

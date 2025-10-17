@@ -33,7 +33,6 @@ class User(AbstractUser):
 class Project(models.Model):
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
-    persist_directory = models.CharField(max_length=255, default=uuid.uuid1().hex)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     users = models.ManyToManyField(User, related_name='project_users', blank=True)
@@ -49,26 +48,42 @@ class Module(models.Model):
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
     folder_path = models.CharField(max_length=255, blank=True, null=True)
-    collection_name = models.CharField(max_length=255, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def _str_(self):
         return self.name
 
-def upload_to_module_folder(instance, filename):
+def upload_to_project_module_folder(instance, filename):
     """
-    Generate file path: documents/modules/{module_id}/{uuid}_{filename}
+    Generate file path: documents/projects/{project_id}/modules/{module_id}/{uuid}_{filename}
     """
-    ext = filename.split('.')[-1].lower()
-    unique_filename = f"{uuid.uuid4().hex[:8]}_{filename}"
-    return f"documents/modules/{instance.module.id}/{unique_filename}"
+    # Clean filename to prevent issues
+    cleaned_filename = filename.replace(' ', '_')
+    
+    # Generate unique filename to prevent conflicts
+    ext = cleaned_filename.split('.')[-1].lower()
+    name = '.'.join(cleaned_filename.split('.')[:-1])
+    unique_filename = f"{uuid.uuid4().hex[:8]}_{name}.{ext}"
+    
+    # Create path structure: documents/projects/PROJECT_ID/modules/MODULE_ID/
+    project_id = instance.module.project.id
+    module_id = instance.module.id
 
+    return f"documents/projects_{project_id}/modules_{module_id}/{unique_filename}"
 
 class Document(models.Model):
     title = models.CharField(max_length=255)
     file_path = models.CharField(max_length=500, blank=True, null=True)
-    file = models.FileField(upload_to='documents/', blank=True, null=True)
+    
+    # Updated to use the new upload function
+    file = models.FileField(
+        upload_to=upload_to_project_module_folder, 
+        blank=True, 
+        null=True,
+        help_text="Upload files to project/module specific folders"
+    )
+    
     module = models.ForeignKey('Module', on_delete=models.CASCADE, related_name='documents')
     uploaded_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='uploaded_documents')
     active = models.BooleanField(default=True)
@@ -79,6 +94,14 @@ class Document(models.Model):
     file_size = models.BigIntegerField(blank=True, null=True, help_text="File size in bytes")
     file_type = models.CharField(max_length=10, blank=True, null=True, help_text="File extension")
     
+    class Meta:
+        db_table = 'rag_app_document'
+        ordering = ['-uploaded_at']
+        indexes = [
+            models.Index(fields=['module', 'active']),
+            models.Index(fields=['uploaded_by', '-uploaded_at']),
+        ]
+    
     def __str__(self):
         return self.title
     
@@ -88,7 +111,8 @@ class Document(models.Model):
             try:
                 self.file_size = self.file.size
                 self.file_type = os.path.splitext(self.file.name)[1].lower()
-            except:
+            except Exception as e:
+                print(f"Error getting file info: {e}")
                 pass
         super().save(*args, **kwargs)
     
@@ -109,3 +133,16 @@ class Document(models.Model):
     def file_extension(self):
         """Return file extension"""
         return self.file_type or (os.path.splitext(self.file.name)[1] if self.file else "")
+    
+    @property
+    def project_name(self):
+        """Get project name through module"""
+        return self.module.project.name if self.module and self.module.project else None
+    
+    @property
+    def folder_path(self):
+        """Get the folder path where file is stored"""
+        if self.file:
+            return os.path.dirname(self.file.path)
+        return None
+

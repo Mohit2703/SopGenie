@@ -1,4 +1,10 @@
 import logging
+import os
+import django
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'sop_rag.settings')
+django.setup()
 from celery import shared_task, current_task
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
@@ -8,39 +14,53 @@ from rag_app.models import Document, Module
 
 logger = logging.getLogger(__name__)
 
-
 @shared_task(bind=True, max_retries=3)
-def create_vectordb_for_module_task(self, task_record_id, module_id, force_recreate=False, chunk_size=1000, chunk_overlap=200, embedding_model=None):
+def create_vectordb_for_module_task(self, task_record_id, module_vector_store_id, chunk_size=1000, chunk_overlap=200, embedding_model=None):
     """Celery task to create vector database for all documents in a module"""
     task_id = self.request.id
+    logger.info(f"Starting vector DB task {task_id} for vector store {module_vector_store_id}")
+    
+    module = None  # Initialize module variable
+    vector_store = None
+    task_obj = None
     
     try:
+        # Get vector store
+        vector_store = ModuleVectorStore.objects.get(id=module_vector_store_id)
+        
+        # Get module from vector store (correct way)
+        module = vector_store.module  # This is the Module object directly
+        print(f"Processing module: {module.name} (ID: {module.id})")
+        
         # Get task record
         task_obj = VectorDBTask.objects.get(id=task_record_id)
         task_obj.task_id = task_id
+        task_obj.status = 'processing'
+        task_obj.save(update_fields=['task_id', 'status'])
         
-        # Get module and documents
-        module = get_object_or_404(Module, id=module_id, is_active=True)
+        # Get documents
         documents = Document.objects.filter(module=module, active=True)
         
         if not documents.exists():
             result = {
                 'message': 'No documents found in module', 
-                'module_id': module_id,
+                'module_id': module.id,
                 'module_name': module.name
             }
             task_obj.mark_completed(result)
+            logger.warning(f"No documents found for module {module.id}")
             return result
         
         total_docs = documents.count()
         task_obj.mark_started(total_docs)
+        print(f"Found {total_docs} documents to process")
         
         # Update Celery task state
         self.update_state(
             state='PROGRESS',
             meta={
                 'progress': 5,
-                'status': f'Starting processing of {total_docs} documents in module: {module.name}',
+                'status': f'Starting processing of {total_docs} documents',
                 'current_document': '',
                 'processed': 0,
                 'total': total_docs
@@ -50,26 +70,9 @@ def create_vectordb_for_module_task(self, task_record_id, module_id, force_recre
         # Initialize vector service
         vector_service = VectorDBService()
         
-        # Create or get module vector store
-        vector_store, created = ModuleVectorStore.objects.get_or_create(
-            module=module,
-            defaults={
-                'collection_name': f"module_{module_id}_{module.name.lower().replace(' ', '_')}",
-                'embedding_model': embedding_model,
-                'chunk_size': chunk_size,
-                'chunk_overlap': chunk_overlap,
-                'status': 'indexing'
-            }
-        )
-        
-        if force_recreate or created:
-            # Reset vector store
-            vector_service.reset_module_vector_store(vector_store)
-            vector_store.status = 'indexing'
-            vector_store.document_count = 0
-            vector_store.total_chunks = 0
-            vector_store.total_tokens = 0
-            vector_store.save()
+        # Update vector store status
+        vector_store.status = 'indexing'
+        vector_store.save(update_fields=['status'])
         
         successful_docs = 0
         failed_docs = 0
@@ -100,7 +103,9 @@ def create_vectordb_for_module_task(self, task_record_id, module_id, force_recre
                         'failed': failed_docs
                     }
                 )
-                
+
+                print(f"Processing document {i}/{total_docs}: {document.title}")
+
                 # Process the document
                 doc_result = vector_service.process_document_for_module(
                     document=document,
@@ -115,14 +120,13 @@ def create_vectordb_for_module_task(self, task_record_id, module_id, force_recre
                 total_tokens += doc_result.get('token_count', 0)
                 
                 task_obj.increment_processed(success=True)
-                
-                logger.info(f"Successfully processed document {document.id} for module {module_id}")
+                logger.info(f"Successfully processed document {document.id}: {document.title}")
                 
             except Exception as e:
                 error_msg = str(e)
                 failed_docs += 1
                 task_obj.increment_processed(success=False)
-                logger.error(f"Failed to process document {document.id}: {error_msg}")
+                logger.error(f"Failed to process document {document.id}: {error_msg}", exc_info=True)
                 continue
         
         # Finalize vector store
@@ -132,12 +136,12 @@ def create_vectordb_for_module_task(self, task_record_id, module_id, force_recre
             token_count=total_tokens
         )
         vector_store.status = 'ready' if successful_docs > 0 else 'error'
-        vector_store.save()
+        vector_store.save(update_fields=['status'])
         
         # Prepare final result
         final_result = {
             'status': 'completed',
-            'module_id': module_id,
+            'module_id': module.id,
             'module_name': module.name,
             'vector_store_id': str(vector_store.id),
             'collection_name': vector_store.collection_name,
@@ -163,35 +167,68 @@ def create_vectordb_for_module_task(self, task_record_id, module_id, force_recre
             }
         )
         
-        logger.info(f"Module {module_id} vector DB creation completed: {successful_docs} success, {failed_docs} failed")
+        logger.info(
+            f"Module {module.id} vector DB creation completed: "
+            f"{successful_docs} success, {failed_docs} failed, "
+            f"{total_chunks} chunks, {total_tokens} tokens"
+        )
         return final_result
+        
+    except ModuleVectorStore.DoesNotExist:
+        error_msg = f"ModuleVectorStore with id {module_vector_store_id} does not exist"
+        logger.error(error_msg)
+        
+        # Try to mark task as failed
+        try:
+            if task_obj:
+                task_obj.mark_failed(error_msg)
+        except:
+            pass
+        
+        self.update_state(
+            state='FAILURE',
+            meta={'error': error_msg}
+        )
+        raise
+        
+    except VectorDBTask.DoesNotExist:
+        error_msg = f"VectorDBTask with id {task_record_id} does not exist"
+        logger.error(error_msg)
+        
+        self.update_state(
+            state='FAILURE',
+            meta={'error': error_msg}
+        )
+        raise
         
     except Exception as e:
         error_message = str(e)
-        logger.error(f"Vector DB task failed for module {module_id}: {error_message}")
+        module_id = module.id if module else 'unknown'
+        logger.error(f"Vector DB task failed for module {module_id}: {error_message}", exc_info=True)
         
         # Mark task as failed
         try:
-            task_obj = VectorDBTask.objects.get(id=task_record_id)
-            task_obj.mark_failed(error_message)
+            if task_obj:
+                task_obj.mark_failed(error_message)
             
-            # Update module vector store status
-            try:
-                vector_store = ModuleVectorStore.objects.get(module_id=module_id)
+            # Update vector store status
+            if vector_store:
                 vector_store.status = 'error'
-                vector_store.save()
-            except ModuleVectorStore.DoesNotExist:
-                pass
+                vector_store.save(update_fields=['status'])
                 
-        except VectorDBTask.DoesNotExist:
-            pass
+        except Exception as cleanup_error:
+            logger.error(f"Failed to cleanup after error: {cleanup_error}")
         
         # Update Celery state
         self.update_state(
             state='FAILURE',
-            meta={'error': error_message, 'module_id': module_id}
+            meta={
+                'error': error_message,
+                'module_id': module_id
+            }
         )
         raise
+
 
 
 @shared_task
