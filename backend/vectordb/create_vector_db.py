@@ -39,104 +39,45 @@ class TextSummarize(Summarize):
     
     def summarize_chain(self):
         """Create the summarization chain for text"""
-        # FIXED: Added the missing implementation
         chain = self.prompt | llm | StrOutputParser()
         return chain
     
     def batch_summarize(self, chunks, concurrency: int = 1):
-        """Summarize multiple chunks in a single API call"""
-        print(f"📝 Batch summarizing {len(chunks)} chunks...")
+        """Skip summarization - return original text"""
+        print(f"⚡ Skipping summarization for {len(chunks)} chunks (using original text)...")
         
-        if not chunks:
-            return []
-        
-        try:
-            # Extract text from chunks
-            texts = []
-            for chunk in chunks:
-                if isinstance(chunk, dict):
-                    text = chunk.get('element', str(chunk))
-                elif hasattr(chunk, 'text'):
-                    text = chunk.text
-                else:
-                    text = str(chunk)
-                texts.append(text)
-            
-            # Combine texts with separators
-            combined_text = "\n\n---CHUNK_SEPARATOR---\n\n".join(texts)
-            
-            # Create prompt
-            prompt_text = f"""Summarize each of the following text chunks separated by '---CHUNK_SEPARATOR---'.
-Return the summaries in order, separated by '---SUMMARY_SEPARATOR---'.
-
-Text chunks:
-{combined_text}
-
-Summaries (one for each chunk, separated by '---SUMMARY_SEPARATOR---'):"""
-            
-            # Get chain and invoke
-            chain = self.summarize_chain()
-            result = chain.invoke({"element": prompt_text})
-
-            time.sleep(10)  # To avoid rate limits
-            
-            # Parse result
-            if "---SUMMARY_SEPARATOR---" in result:
-                summaries = result.split("---SUMMARY_SEPARATOR---")
-                summaries = [s.strip() for s in summaries if s.strip()]
-                print(f"✅ Generated {len(summaries)} summaries")
+        # Extract text from chunks without summarization
+        texts = []
+        for chunk in chunks:
+            if isinstance(chunk, dict):
+                text = chunk.get('element', str(chunk))
+            elif hasattr(chunk, 'text'):
+                text = chunk.text
             else:
-                # If no separator, treat whole response as single summary
-                summaries = [result.strip()]
-                print(f"⚠️  Single summary generated for {len(chunks)} chunks")
-            
-            # Ensure we have same number of summaries as chunks
-            while len(summaries) < len(chunks):
-                summaries.append(summaries[-1] if summaries else "No summary available")
-            
-            return summaries[:len(chunks)]
-            
-        except Exception as e:
-            print(f"❌ Batch summarization failed: {e}")
-            import traceback
-            traceback.print_exc()
-            
-            # Fallback: return truncated text
-            return [str(chunk).get('element', str(chunk))[:500] + "..." 
-                    if isinstance(chunk, dict) 
-                    else getattr(chunk, 'text', str(chunk))[:500] + "..." 
-                    for chunk in chunks]
+                text = str(chunk)
+            texts.append(text)
+        
+        print(f"✅ Extracted {len(texts)} text chunks")
+        return texts
     
     def summarize(self, chunks):
-        """Main summarize method"""
+        """Return original text without summarization"""
         if not chunks:
             return []
         
-        # Single chunk
-        if len(chunks) == 1:
-            try:
-                chain = self.summarize_chain()
-                chunk = chunks[0]
-                
-                # Extract text
-                if isinstance(chunk, dict):
-                    text = chunk.get('element', str(chunk))
-                elif hasattr(chunk, 'text'):
-                    text = chunk.text
-                else:
-                    text = str(chunk)
-                
-                result = chain.invoke({"element": text})
-                return [result]
-            except Exception as e:
-                print(f"❌ Single chunk summarization failed: {e}")
-                chunk = chunks[0]
-                text = chunk.get('element', str(chunk)) if isinstance(chunk, dict) else str(chunk)
-                return [text[:500] + "..."]
+        # Just extract text, no API calls
+        texts = []
+        for chunk in (chunks if isinstance(chunks, list) else [chunks]):
+            if isinstance(chunk, dict):
+                text = chunk.get('element', str(chunk))
+            elif hasattr(chunk, 'text'):
+                text = chunk.text
+            else:
+                text = str(chunk)
+            texts.append(text)
         
-        time.sleep(10)
-        # Multiple chunks
-        return self.batch_summarize(chunks)
+        return texts
+
 
 class ImageSummarize(Summarize):
     def __init__(self, file_path, prompt_image):
@@ -169,32 +110,17 @@ class ImageSummarize(Summarize):
         return chain
     
     def batch_summarize(self, chunks, concurrency: int = 1):
-        """Batch summarize images"""
-        valid_chunks = []
-        for chunk in chunks:
-            has_image = False
-            if hasattr(chunk, 'metadata'):
-                if hasattr(chunk.metadata, 'image_base64') and chunk.metadata.image_base64:
-                    has_image = True
-                elif isinstance(chunk.metadata, dict) and chunk.metadata.get('image_base64'):
-                    has_image = True
-            
-            if has_image:
-                valid_chunks.append(chunk)
-            else:
-                print(f"⚠️  Skipping image chunk without base64 data")
+        """Skip summarization - return placeholder for images"""
+        print(f"⚡ Skipping image summarization for {len(chunks)} images...")
         
-        if not valid_chunks:
-            return []
+        # Return simple placeholder text for images
+        results = []
+        for i, chunk in enumerate(chunks):
+            results.append(f"[Image {i+1} from document]")
         
-        try:
-            chain = self.summarize_chain()
-            summaries = chain.batch(valid_chunks, {"max_concurrency": concurrency})
-            time.sleep(10)  # To avoid rate limits
-            return summaries
-        except Exception as e:
-            print(f"❌ Image batch summarization failed: {e}")
-            return ["[Image description unavailable]" for _ in valid_chunks]
+        print(f"✅ Generated {len(results)} image placeholders")
+        return results
+
 
 class SummarizeFactory:
     @staticmethod
@@ -306,7 +232,7 @@ Text:
                     
                     txt_chunks = []
                     import gc; gc.collect()
-                    time.sleep(20)
+                    # time.sleep(20)
                 
                 # Process image
                 print(f"🖼️  Processing image chunk {i+1}/{total_chunks}")
@@ -319,7 +245,7 @@ Text:
                         metadata={self.id_key: doc_id}
                     ))
                     doc_ids.append(doc_id)
-                time.sleep(20)
+                # time.sleep(20)
             
             else:
                 txt_chunks.append(chunk)
@@ -340,7 +266,7 @@ Text:
                     print(f"✅ Progress: {((i+1)/total_chunks)*100:.1f}%")
                     txt_chunks = []
                     import gc; gc.collect()
-                    time.sleep(20)
+                    # time.sleep(20)
         
         # Process remaining
         if txt_chunks:

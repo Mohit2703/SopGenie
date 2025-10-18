@@ -6,3 +6,4 @@ chroma_langchain_db/
 .venv
 *db.sqlite3
 docs/*
+*/figures/*
