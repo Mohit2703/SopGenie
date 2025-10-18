@@ -249,3 +249,77 @@ class QueryLog(models.Model):
     
     def __str__(self):
         return f"Query by {self.user.username}: {self.query_text[:50]}..."
+
+
+class Question(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    module_vector_store = models.ForeignKey(
+        'ModuleVectorStore', 
+        on_delete=models.CASCADE,
+        related_name='questions',
+    )
+    text = models.TextField()
+    created_by = models.ForeignKey(
+        'rag_app.User', 
+        on_delete=models.CASCADE,
+        related_name='questions'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'vectordb_question'
+        ordering = ['-created_at']
+    def __str__(self):
+        return f"Question: {self.question_text[:50]}..."
+    
+class Answer(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    question = models.ForeignKey(
+        'Question', 
+        on_delete=models.CASCADE,
+        related_name='answers',
+    )
+    time_required = models.FloatField(help_text="Time taken to generate the answer in seconds")
+    text = models.TextField()
+    created_by = models.ForeignKey(
+        'rag_app.User', 
+        on_delete=models.CASCADE,
+        related_name='answers'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'vectordb_answer'
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"Answer: {self.answer_text[:50]}..."
+    
+
+class Rating(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    answer = models.ForeignKey(
+        'Answer', 
+        on_delete=models.CASCADE,
+        related_name='ratings',
+    )
+    score = models.IntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(5)],
+        help_text="Rating value between 1 and 5"
+    )
+    created_by = models.ForeignKey(
+        'rag_app.User', 
+        on_delete=models.CASCADE,
+        related_name='ratings'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'vectordb_rating'
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"Rating: {self.rating_value} for Answer ID: {self.answer.id}"
+

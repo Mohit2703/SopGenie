@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import VectorDBTask, ModuleVectorStore, QueryLog
+from .models import VectorDBTask, ModuleVectorStore, QueryLog, Question, Answer, Rating
 
 class VectorDBTaskSerializer(serializers.ModelSerializer):
     # Access module through module_vector_store relationship
@@ -136,3 +136,22 @@ class QueryFeedbackSerializer(serializers.Serializer):
         if not QueryLog.objects.filter(id=value).exists():
             raise serializers.ValidationError("Query log does not exist")
         return value
+
+
+class QuestionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Question
+        fields = "__all__"
+
+class AnswerSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Answer
+        fields = "__all__"
+
+class RatingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Rating
+        fields = "__all__"
+        read_only_fields = ['id', 'created_at']
+        
+

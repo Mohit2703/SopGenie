@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.utils.html import format_html
 from django.urls import reverse
 from django.utils.safestring import mark_safe
-from .models import VectorDBTask, ModuleVectorStore, QueryLog
+from .models import VectorDBTask, ModuleVectorStore, QueryLog, Question, Answer, Rating
 import json
 
 @admin.register(VectorDBTask)
@@ -428,3 +428,54 @@ class VectorDBTaskInline(admin.TabularInline):
     
     def has_add_permission(self, request, obj=None):
         return False
+
+
+@admin.register(Question)
+class QuestionAdmin(admin.ModelAdmin):
+    list_display = ['id', 'text_short', 'created_at']
+    search_fields = ['text']
+    readonly_fields = ['id', 'text', 'created_at']
+    ordering = ['-created_at']
+    
+    def text_short(self, obj):
+        max_length = 75
+        if len(obj.text) > max_length:
+            return f"{obj.text[:max_length]}..."
+        return obj.text
+    text_short.short_description = 'Question'
+    
+
+@admin.register(Answer)
+class AnswerAdmin(admin.ModelAdmin):
+    list_display = ['id', 'text_short', 'question_link', 'created_at']
+    search_fields = ['text', 'question__text']
+    readonly_fields = ['id', 'text', 'question', 'created_at']
+    ordering = ['-created_at']
+    
+    def text_short(self, obj):
+        max_length = 75
+        if len(obj.text) > max_length:
+            return f"{obj.text[:max_length]}..."
+        return obj.text
+    text_short.short_description = 'Answer'
+    
+    def question_link(self, obj):
+        if obj.question:
+            url = reverse('admin:rag_app_question_change', args=[obj.question.id])
+            return format_html('<a href="{}">{}</a>', url, obj.question.text_short())
+        return '-'
+    question_link.short_description = 'Question'
+
+@admin.register(Rating)
+class RatingAdmin(admin.ModelAdmin):
+    list_display = ['id', 'score', 'created_at']
+    search_fields = ['created_by__username']
+    readonly_fields = ['id', 'score', 'created_by', 'created_at']
+    ordering = ['-created_at']
+    
+    def user_link(self, obj):
+        if obj.created_by:
+            url = reverse('admin:rag_app_user_change', args=[obj.created_by.id])
+            return format_html('<a href="{}">{}</a>', url, obj.created_by.username)
+        return '-'
+    user_link.short_description = 'User'
