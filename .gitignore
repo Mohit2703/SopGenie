@@ -3,7 +3,8 @@
 chroma_db/
 chroma_langchain_db/
 .history
-.venv
+.venv/
 *db.sqlite3
 docs/*
 */figures/*
+*/backend/vector_data/*

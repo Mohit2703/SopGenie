@@ -9,14 +9,16 @@ from rest_framework import status
 from rest_framework.pagination import PageNumberPagination
 from celery.result import AsyncResult
 from django.db.models import Q
-
-from .models import VectorDBTask, ModuleVectorStore, QueryLog
+import time
+from .models import VectorDBTask, ModuleVectorStore, QueryLog, Question, Answer, Rating
 from .serializers import (
     VectorDBTaskSerializer, ModuleVectorStoreSerializer, QueryLogSerializer,
-    VectorDBCreateSerializer, RAGQuerySerializer, RAGResponseSerializer
+    VectorDBCreateSerializer, RAGQuerySerializer, RAGResponseSerializer,
+    QuestionSerializer, AnswerSerializer, RatingSerializer
 )
 from .tasks import create_vectordb_for_module_task
-from .services import VectorDBService, RAGService
+from .services import VectorDBService
+from .chat_bot import RUN_GRAPH
 from rag_app.models import Module, Project
 
 logger = logging.getLogger(__name__)
@@ -668,3 +670,85 @@ class VectorDBStatsView(APIView):
                 {"error": f"Failed to get statistics: {str(e)}"}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class ChatView(APIView):
+    """Chat interface using RAG"""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, module_id):
+        """Handle chat message"""
+        try:
+            data = request.data
+            question = data.get('question')
+            module_vector_store = get_object_or_404(
+                ModuleVectorStore, 
+                module_id=module_id, 
+                status='ready'
+            )
+
+            create_question = Question.objects.create(
+                module_vector_store=module_vector_store,
+                text=question,
+                created_by=request.user
+            )
+
+            ## fetch latest 5 chat history for context
+            previous_question_answers = Answer.objects.filter(
+                question__module_vector_store=module_vector_store,
+                question__created_by=request.user
+            ).order_by('-created_at').reverse()[:5]
+
+            print("Previous Q&A fetched:", previous_question_answers)
+            previous_chat = []
+            
+            for ans in previous_question_answers:
+                previous_chat.append({
+                    "question": ans.question.text,
+                    "answer": ans.text
+                })
+
+            print("Previous chat:", previous_chat)
+
+            ## get time to process RAG
+
+            start_time = time.time()
+            rag_service = RUN_GRAPH(
+                collection_name=module_vector_store.collection_name,
+                persist_directory=module_vector_store.persistence_directory,
+                embedding_model_name=module_vector_store.embedding_model,
+                model_provider="mistralai",
+                temperature=0.0
+            )
+
+            answer_text = rag_service.run(
+                question=question,
+                previous_chat=previous_chat
+            )
+
+            end_time = time.time()
+            processing_time = end_time - start_time
+
+            create_answer = Answer.objects.create(
+                question=create_question,
+                text=answer_text['answer'] if 'answer' in answer_text else answer_text,
+                created_by=request.user,
+                time_required=processing_time
+            )
+
+            logger.info(f"Chat processed for module {module_id} by user {request.user.username} in {processing_time:.3f}s")
+
+            return Response({
+                "question": question,
+                "answer": answer_text['answer'] if 'answer' in answer_text else answer_text,
+                "processing_time": processing_time
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+
+            logger.error(f"Chat processing failed: {str(e)}")
+            return Response(
+                {"error": f"Chat processing failed: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+

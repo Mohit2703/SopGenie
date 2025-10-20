@@ -271,7 +271,7 @@ class Question(models.Model):
         db_table = 'vectordb_question'
         ordering = ['-created_at']
     def __str__(self):
-        return f"Question: {self.question_text[:50]}..."
+        return f"Question: {self.text[:50]}..."
     
 class Answer(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -295,7 +295,7 @@ class Answer(models.Model):
         ordering = ['-created_at']
     
     def __str__(self):
-        return f"Answer: {self.answer_text[:50]}..."
+        return f"Answer: {self.text[:50]}..."
     
 
 class Rating(models.Model):

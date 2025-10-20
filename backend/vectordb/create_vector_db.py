@@ -1,10 +1,5 @@
 import os
-import base64
-import time
-import random
-import httpx
 import uuid
-from IPython.display import Image, display
 from unstructured.partition.pdf import partition_pdf
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser

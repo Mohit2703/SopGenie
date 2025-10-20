@@ -447,7 +447,7 @@ class QuestionAdmin(admin.ModelAdmin):
 
 @admin.register(Answer)
 class AnswerAdmin(admin.ModelAdmin):
-    list_display = ['id', 'text_short', 'question_link', 'created_at']
+    list_display = ['id', 'text_short', 'created_at']
     search_fields = ['text', 'question__text']
     readonly_fields = ['id', 'text', 'question', 'created_at']
     ordering = ['-created_at']
@@ -458,14 +458,6 @@ class AnswerAdmin(admin.ModelAdmin):
             return f"{obj.text[:max_length]}..."
         return obj.text
     text_short.short_description = 'Answer'
-    
-    def question_link(self, obj):
-        if obj.question:
-            url = reverse('admin:rag_app_question_change', args=[obj.question.id])
-            return format_html('<a href="{}">{}</a>', url, obj.question.text_short())
-        return '-'
-    question_link.short_description = 'Question'
-
 @admin.register(Rating)
 class RatingAdmin(admin.ModelAdmin):
     list_display = ['id', 'score', 'created_at']
