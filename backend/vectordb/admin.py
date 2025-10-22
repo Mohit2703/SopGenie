@@ -281,142 +281,7 @@ class ModuleVectorStoreAdmin(admin.ModelAdmin):
         return mark_safe(html)
     recent_tasks_display.short_description = 'Recent Tasks'
 
-@admin.register(QueryLog)
-class QueryLogAdmin(admin.ModelAdmin):
-    list_display = [
-        'query_text_short', 'get_user_link', 'get_module_link',
-        'rating_stars', 'performance_display', 'created_at'
-    ]
-    list_filter = ['user_rating', 'created_at', 'module']
-    search_fields = [
-        'query_text', 
-        'response_text', 
-        'user__username',
-        'module__name'
-    ]
-    readonly_fields = [
-        'id', 'query_hash', 'created_at',
-        'retrieved_chunks_display', 'similarity_scores_display',
-        'metadata_display'
-    ]
-    ordering = ['-created_at']
-    date_hierarchy = 'created_at'
-    
-    fieldsets = (
-        ('Query Information', {
-            'fields': ('id', 'user', 'module', 'query_text', 'query_hash')
-        }),
-        ('Response', {
-            'fields': ('response_text',)
-        }),
-        ('Performance Metrics', {
-            'fields': (
-                'retrieval_time_ms', 'generation_time_ms', 'total_time_ms'
-            )
-        }),
-        ('User Feedback', {
-            'fields': ('user_rating', 'user_feedback')
-        }),
-        ('Technical Details', {
-            'fields': (
-                'retrieved_chunks_display', 
-                'similarity_scores_display', 
-                'metadata_display'
-            ),
-            'classes': ('collapse',)
-        }),
-        ('Timestamps', {
-            'fields': ('created_at',)
-        })
-    )
-    
-    def query_text_short(self, obj):
-        """Display shortened query text"""
-        max_length = 60
-        if len(obj.query_text) > max_length:
-            return f"{obj.query_text[:max_length]}..."
-        return obj.query_text
-    query_text_short.short_description = 'Query'
-    
-    def get_user_link(self, obj):
-        """Display user with link"""
-        if obj.user:
-            url = reverse('admin:rag_app_user_change', args=[obj.user.id])
-            return format_html('<a href="{}">{}</a>', url, obj.user.username)
-        return '-'
-    get_user_link.short_description = 'User'
-    
-    def get_module_link(self, obj):
-        """Display module with link"""
-        if obj.module:
-            url = reverse('admin:rag_app_module_change', args=[obj.module.id])
-            return format_html('<a href="{}">{}</a>', url, obj.module.name)
-        return '-'
-    get_module_link.short_description = 'Module'
-    
-    def rating_stars(self, obj):
-        """Display rating as stars"""
-        if not obj.user_rating:
-            return '-'
-        
-        filled = '★' * obj.user_rating
-        empty = '☆' * (5 - obj.user_rating)
-        color = '#ffc107' if obj.user_rating >= 3 else '#dc3545'
-        
-        return format_html(
-            '<span style="color: {}; font-size: 16px;">{}{}</span>',
-            color, filled, empty
-        )
-    rating_stars.short_description = 'Rating'
-    
-    def performance_display(self, obj):
-        """Display performance metrics"""
-        return format_html(
-            '<div style="font-size: 11px;">'
-            '<strong>Retrieval:</strong> {}ms<br>'
-            '<strong>Generation:</strong> {}ms<br>'
-            '<strong>Total:</strong> {}ms'
-            '</div>',
-            obj.retrieval_time_ms,
-            obj.generation_time_ms,
-            obj.total_time_ms
-        )
-    performance_display.short_description = 'Performance'
-    
-    def retrieved_chunks_display(self, obj):
-        """Display formatted retrieved chunks"""
-        if obj.retrieved_chunks:
-            try:
-                formatted = json.dumps(obj.retrieved_chunks, indent=2)
-                return format_html('<pre style="max-height: 300px; overflow: auto;">{}</pre>', formatted)
-            except:
-                return str(obj.retrieved_chunks)
-        return '-'
-    retrieved_chunks_display.short_description = 'Retrieved Chunks'
-    
-    def similarity_scores_display(self, obj):
-        """Display formatted similarity scores"""
-        if obj.similarity_scores:
-            try:
-                formatted = json.dumps(obj.similarity_scores, indent=2)
-                return format_html('<pre>{}</pre>', formatted)
-            except:
-                return str(obj.similarity_scores)
-        return '-'
-    similarity_scores_display.short_description = 'Similarity Scores'
-    
-    def metadata_display(self, obj):
-        """Display formatted metadata"""
-        if obj.metadata:
-            try:
-                formatted = json.dumps(obj.metadata, indent=2)
-                return format_html('<pre>{}</pre>', formatted)
-            except:
-                return str(obj.metadata)
-        return '-'
-    metadata_display.short_description = 'Metadata'
 
-# Optional: Add inline admin for tasks in ModuleVectorStore
 class VectorDBTaskInline(admin.TabularInline):
     model = VectorDBTask
     extra = 0
@@ -458,16 +323,10 @@ class AnswerAdmin(admin.ModelAdmin):
             return f"{obj.text[:max_length]}..."
         return obj.text
     text_short.short_description = 'Answer'
+
 @admin.register(Rating)
 class RatingAdmin(admin.ModelAdmin):
-    list_display = ['id', 'score', 'created_at']
+    list_display = ['id', 'score', 'created_at', 'feedback_text']
     search_fields = ['created_by__username']
     readonly_fields = ['id', 'score', 'created_by', 'created_at']
     ordering = ['-created_at']
-    
-    def user_link(self, obj):
-        if obj.created_by:
-            url = reverse('admin:rag_app_user_change', args=[obj.created_by.id])
-            return format_html('<a href="{}">{}</a>', url, obj.created_by.username)
-        return '-'
-    user_link.short_description = 'User'

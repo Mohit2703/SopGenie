@@ -703,9 +703,17 @@ class ChatView(APIView):
             previous_chat = []
             
             for ans in previous_question_answers:
+                rating = Rating.objects.filter(
+                    answer=ans,
+                )
+                rate = []
+                if rating.exists():
+                    for r in rating:
+                        rate.append({ "score": r.score, "feedback": r.feedback_text })
                 previous_chat.append({
                     "question": ans.question.text,
-                    "answer": ans.text
+                    "answer": ans.text,
+                    "rating": rate
                 })
 
             print("Previous chat:", previous_chat)
@@ -741,7 +749,8 @@ class ChatView(APIView):
             return Response({
                 "question": question,
                 "answer": answer_text['answer'] if 'answer' in answer_text else answer_text,
-                "processing_time": processing_time
+                "processing_time": processing_time,
+                "answer_id": str(create_answer.id)
             }, status=status.HTTP_200_OK)
         except Exception as e:
 
@@ -751,4 +760,49 @@ class ChatView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+class GiveRating(APIView):
+    """Give rating to a chat answer"""
+    permission_classes = [IsAuthenticated]
 
+    def post(self, request, answer_id):
+        """Submit rating for an answer"""
+        try:
+            data = request.data
+            rating_value = data.get('rating')
+            feedback_text = data.get('feedback', '')
+
+            answer = get_object_or_404(Answer, id=answer_id)
+
+            # Check if user has already rated this answer
+            existing_rating = Rating.objects.filter(
+                answer=answer,
+                created_by=request.user
+            ).first()
+
+            if existing_rating:
+                return Response(
+                    {"error": "You have already rated this answer"}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Create new rating
+            rating = Rating.objects.create(
+                answer=answer,
+                score=rating_value,
+                feedback_text=feedback_text,
+                created_by=request.user
+            )
+
+            return Response({
+                "success": True,
+                "message": "Rating submitted successfully",
+                "rating_id": str(rating.id)
+            }, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            logger.error(f"Failed to submit rating: {str(e)}")
+            return Response(
+                {"error": f"Failed to submit rating: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        

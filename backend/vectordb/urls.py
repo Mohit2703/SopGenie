@@ -10,7 +10,8 @@ from .views import (
     QueryLogListView,
     QueryLogDetailView,
     VectorDBStatsView,
-    ChatView
+    ChatView,
+    GiveRating
 )
 
 app_name = 'vectordb'
@@ -37,5 +38,6 @@ urlpatterns = [
     
     # Statistics and Analytics
     path('stats/', VectorDBStatsView.as_view(), name='vector-db-stats'),
-    path("chat/<int:module_id>/", ChatView.as_view(), name='chat-url')
+    path("chat/<int:module_id>/", ChatView.as_view(), name='chat-url'),
+    path("rating/<str:answer_id>/", GiveRating.as_view(), name='rating-url'),
 ]

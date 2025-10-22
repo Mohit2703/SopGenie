@@ -309,6 +309,7 @@ class Rating(models.Model):
         validators=[MinValueValidator(1), MaxValueValidator(5)],
         help_text="Rating value between 1 and 5"
     )
+    feedback_text = models.TextField(blank=True)
     created_by = models.ForeignKey(
         'rag_app.User', 
         on_delete=models.CASCADE,
@@ -321,5 +322,5 @@ class Rating(models.Model):
         ordering = ['-created_at']
     
     def __str__(self):
-        return f"Rating: {self.rating_value} for Answer ID: {self.answer.id}"
+        return f"Rating: {self.score} for Answer ID: {self.answer.id}"
 
