@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import VectorDBTask, ModuleVectorStore, QueryLog, Question, Answer, Rating
+from .models import VectorDBTask, ModuleVectorStore, QueryLog, Question, Answer, Rating, ChatSession
 
 class VectorDBTaskSerializer(serializers.ModelSerializer):
     # Access module through module_vector_store relationship
@@ -154,4 +154,9 @@ class RatingSerializer(serializers.ModelSerializer):
         fields = "__all__"
         read_only_fields = ['id', 'created_at']
         
+class ChatSessionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ChatSession
+        fields = "__all__"
+        read_only_fields = ['id', 'created_at', 'updated_at', 'session_id']
 

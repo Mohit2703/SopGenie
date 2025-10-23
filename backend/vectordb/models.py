@@ -253,6 +253,12 @@ class QueryLog(models.Model):
 
 class Question(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    chat_session = models.ForeignKey(
+        'ChatSession',
+        on_delete=models.CASCADE,
+        related_name='questions',
+        db_index=True
+    )
     module_vector_store = models.ForeignKey(
         'ModuleVectorStore', 
         on_delete=models.CASCADE,
@@ -269,7 +275,11 @@ class Question(models.Model):
 
     class Meta:
         db_table = 'vectordb_question'
-        ordering = ['-created_at']
+        ordering = ['created_at']  # Ascending for chat order
+        indexes = [
+            models.Index(fields=['chat_session', 'created_at']),
+            models.Index(fields=['module_vector_store', '-created_at']),
+        ]
     def __str__(self):
         return f"Question: {self.text[:50]}..."
     
@@ -292,10 +302,13 @@ class Answer(models.Model):
 
     class Meta:
         db_table = 'vectordb_answer'
-        ordering = ['-created_at']
+        ordering = ['created_at']  # Match question ordering
+        indexes = [
+            models.Index(fields=['question', 'created_at']),
+        ]
     
     def __str__(self):
-        return f"Answer: {self.text[:50]}..."
+        return f"A: {self.text[:50]}..."
     
 
 class Rating(models.Model):
@@ -323,4 +336,36 @@ class Rating(models.Model):
     
     def __str__(self):
         return f"Rating: {self.score} for Answer ID: {self.answer.id}"
+
+
+class ChatSession(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    title = models.TextField()
+    session_id = models.CharField(max_length=255, db_index=True)
+    user = models.ForeignKey(
+        'rag_app.User', 
+        on_delete=models.CASCADE,
+        related_name='sessions'
+    )
+    module_vector_store = models.ForeignKey(
+        'ModuleVectorStore',
+        on_delete=models.CASCADE,
+        related_name='chat_sessions'
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'vectordb_chat_session'
+        ordering = ['-updated_at']
+        indexes = [
+            models.Index(fields=['user', '-updated_at']),
+            models.Index(fields=['module_vector_store', '-updated_at']),
+            models.Index(fields=['session_id', 'user']),
+        ]
+    
+    def __str__(self):
+        return f"{self.title} - {self.user.username}"
+    
 

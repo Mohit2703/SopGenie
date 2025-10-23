@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.utils.html import format_html
 from django.urls import reverse
 from django.utils.safestring import mark_safe
-from .models import VectorDBTask, ModuleVectorStore, QueryLog, Question, Answer, Rating
+from .models import VectorDBTask, ModuleVectorStore, QueryLog, Question, Answer, Rating, ChatSession
 import json
 
 @admin.register(VectorDBTask)
@@ -329,4 +329,12 @@ class RatingAdmin(admin.ModelAdmin):
     list_display = ['id', 'score', 'created_at', 'feedback_text']
     search_fields = ['created_by__username']
     readonly_fields = ['id', 'score', 'created_by', 'created_at']
+    ordering = ['-created_at']
+
+
+@admin.register(ChatSession)
+class ChatSessionAdmin(admin.ModelAdmin):
+    list_display = ['id', 'title', 'session_id', 'module_vector_store', 'user', 'created_at']
+    search_fields = ['title', 'session_id', 'user__username', 'module_vector_store__module__name']
+    readonly_fields = ['id', 'title', 'session_id', 'module_vector_store', 'user', 'created_at']
     ordering = ['-created_at']

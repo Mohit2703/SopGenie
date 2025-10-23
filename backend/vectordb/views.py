@@ -8,13 +8,13 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.pagination import PageNumberPagination
 from celery.result import AsyncResult
-from django.db.models import Q
+from django.db.models import Q, Prefetch
 import time
-from .models import VectorDBTask, ModuleVectorStore, QueryLog, Question, Answer, Rating
+from .models import VectorDBTask, ModuleVectorStore, QueryLog, Question, Answer, Rating, ChatSession
 from .serializers import (
     VectorDBTaskSerializer, ModuleVectorStoreSerializer, QueryLogSerializer,
     VectorDBCreateSerializer, RAGQuerySerializer, RAGResponseSerializer,
-    QuestionSerializer, AnswerSerializer, RatingSerializer
+    QuestionSerializer, AnswerSerializer, RatingSerializer, ChatSessionSerializer
 )
 from .tasks import create_vectordb_for_module_task
 from .services import VectorDBService
@@ -676,42 +676,76 @@ class ChatView(APIView):
     """Chat interface using RAG"""
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, module_id):
+    def post(self, request, module_id, session_id=None):
         """Handle chat message"""
         try:
             data = request.data
             question = data.get('question')
+            title = data.get('title', '')
+            
+            if not question:
+                return Response(
+                    {"error": "Question is required"}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
             module_vector_store = get_object_or_404(
                 ModuleVectorStore, 
                 module_id=module_id, 
                 status='ready'
             )
 
+            if session_id:
+                get_session = get_object_or_404(
+                    ChatSession,
+                    session_id=session_id,
+                    user=request.user
+                )
+            else:
+                session_id = hashlib.sha256(
+                    f"{request.user.id}_{module_id}_{time.time()}".encode()
+                ).hexdigest()
+                # session_id = get_session.session_id
+
+                get_session = ChatSession.objects.create(
+                    title = title if title or title != '' else f"Chat Session {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                    session_id = session_id,
+                    user = request.user,
+                    module_vector_store = module_vector_store
+                )
             create_question = Question.objects.create(
                 module_vector_store=module_vector_store,
                 text=question,
-                created_by=request.user
+                created_by=request.user,
+                chat_session=get_session
             )
 
-            ## fetch latest 5 chat history for context
-            previous_question_answers = Answer.objects.filter(
-                question__module_vector_store=module_vector_store,
-                question__created_by=request.user
-            ).order_by('-created_at').reverse()[:5]
 
-            print("Previous Q&A fetched:", previous_question_answers)
-            previous_chat = []
+            ## fetch latest 5 chat history for the session
+            previous_chat_history = Answer.objects.select_related('question').filter(
+                question__chat_session = get_session,
+                question__created_by = request.user
+            ).order_by('created_at').reverse()[:5]
+
+            print("Previous chat history objects:", previous_chat_history)
             
-            for ans in previous_question_answers:
-                rating = Rating.objects.filter(
+
+            previous_chat = []
+
+            for ans in previous_chat_history:
+                question_obj = ans.question
+                  # Get first answer
+                ratings = Rating.objects.filter(
                     answer=ans,
                 )
-                rate = []
-                if rating.exists():
-                    for r in rating:
-                        rate.append({ "score": r.score, "feedback": r.feedback_text })
+                
+                rate = [
+                    {"score": r.score, "feedback": r.feedback_text} 
+                    for r in ratings
+                ]
+                    
                 previous_chat.append({
-                    "question": ans.question.text,
+                    "question": question_obj.text,
                     "answer": ans.text,
                     "rating": rate
                 })
@@ -737,9 +771,11 @@ class ChatView(APIView):
             end_time = time.time()
             processing_time = end_time - start_time
 
+            answer_content = answer_text.get('answer', answer_text) if isinstance(answer_text, dict) else answer_text
+
             create_answer = Answer.objects.create(
                 question=create_question,
-                text=answer_text['answer'] if 'answer' in answer_text else answer_text,
+                text=answer_content,
                 created_by=request.user,
                 time_required=processing_time
             )
@@ -748,8 +784,9 @@ class ChatView(APIView):
 
             return Response({
                 "question": question,
-                "answer": answer_text['answer'] if 'answer' in answer_text else answer_text,
-                "processing_time": processing_time,
+                "answer": answer_content,
+                "processing_time": round(processing_time, 3),
+                "session_id": session_id,
                 "answer_id": str(create_answer.id)
             }, status=status.HTTP_200_OK)
         except Exception as e:
@@ -761,6 +798,7 @@ class ChatView(APIView):
             )
 
 class GiveRating(APIView):
+
     """Give rating to a chat answer"""
     permission_classes = [IsAuthenticated]
 
