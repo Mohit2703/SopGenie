@@ -7,4 +7,5 @@ chroma_langchain_db/
 *db.sqlite3
 docs/*
 */figures/*
-*/backend/vector_data/*
+*/vector_data/
+*/.env.local

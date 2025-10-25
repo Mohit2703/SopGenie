@@ -8,20 +8,31 @@ urlpatterns = [
 
     path('users/', UserView.as_view(), name='user-list-create'),
     path('users/<int:user_id>/', UserView.as_view(), name='user-detail'),
+    
+    ## personal info of logged in user
     path('user_info/', UserInfoView.as_view(), name='user-info'),
+    
+    ## search user
     path('search_users/', SearchUserView.as_view(), name='search-users'),
 
     # Project routes
     path('projects/', ProjectView.as_view(), name='project-list-create'),
     path('projects/<int:project_id>/', ProjectView.as_view(), name='project-detail'),
+    
+    ## project members route
     path('projects/<int:project_id>/members/', ProjectMemberView.as_view(), name='project-members'),
     path('projects/<int:project_id>/members/<int:user_id>/', ProjectMemberView.as_view(), name='project-member-detail'),
+    
+    ## get module list for given project 
     path('projects/<int:project_id>/modules/', ProjectModuleListView.as_view(), name='project-modules'),
+
 
     # Module routes
     path('modules/', ModuleView.as_view(), name='module-list-create'),
     path('modules/<int:project_id>/', ModuleView.as_view(), name='module-list-create'),
     path('modules_details/<int:module_id>/', ModuleView.as_view(), name='module-detail'),
+    
+    ## Document routes
     path('documents/', DocumentView.as_view(), name='document-list-create'),
     path('documents/<int:document_id>/', DocumentView.as_view(), name='document-detail'),
 

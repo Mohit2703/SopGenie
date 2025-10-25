@@ -1,25 +1,30 @@
 import logging
 import hashlib
+import time
+
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.db.models import Q
+from django.conf import settings
+
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.pagination import PageNumberPagination
+
 from celery.result import AsyncResult
-from django.db.models import Q, Prefetch
-import time
+
 from .models import VectorDBTask, ModuleVectorStore, QueryLog, Question, Answer, Rating, ChatSession
+from rag_app.models import Module
 from .serializers import (
     VectorDBTaskSerializer, ModuleVectorStoreSerializer, QueryLogSerializer,
-    VectorDBCreateSerializer, RAGQuerySerializer, RAGResponseSerializer,
-    QuestionSerializer, AnswerSerializer, RatingSerializer, ChatSessionSerializer
+    RAGQuerySerializer, RAGResponseSerializer, ChatSessionSerializer
 )
+
 from .tasks import create_vectordb_for_module_task
 from .services import VectorDBService
 from .chat_bot import RUN_GRAPH
-from rag_app.models import Module, Project
 
 logger = logging.getLogger(__name__)
 
@@ -47,10 +52,10 @@ class CreateModuleVectorDBView(APIView):
                     collection_name=f"module_{module.id}_vector_store",
                     persistence_directory=persistence_directory, 
                     status='empty',
-                    embedding_model=request.data.get('embedding_model', 'sentence-transformers/all-MiniLM-L6-v2'),
-                    embedding_dimension=request.data.get('embedding_dimension', 384),
-                    chunk_size=request.data.get('chunk_size', 1000),
-                    chunk_overlap=request.data.get('chunk_overlap', 200),
+                    embedding_model=request.data.get('embedding_model', settings.VECTOR_DB_CONFIG['EMBEDDINGS_MODEL']),
+                    embedding_dimension=request.data.get('embedding_dimension', settings.VECTOR_DB_CONFIG.get('EMBEDDING_DIMENSION', 384)),
+                    chunk_size=request.data.get('chunk_size', settings.VECTOR_DB_CONFIG.get('CHUNK_SIZE', 1000)),
+                    chunk_overlap=request.data.get('chunk_overlap', settings.VECTOR_DB_CONFIG.get('CHUNK_OVERLAP', 200)),
                     config=request.data.get('config', {})
                 )
 

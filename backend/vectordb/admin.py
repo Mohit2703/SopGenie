@@ -1,9 +1,11 @@
+import json
+
 from django.contrib import admin
 from django.utils.html import format_html
 from django.urls import reverse
 from django.utils.safestring import mark_safe
+
 from .models import VectorDBTask, ModuleVectorStore, QueryLog, Question, Answer, Rating, ChatSession
-import json
 
 @admin.register(VectorDBTask)
 class VectorDBTaskAdmin(admin.ModelAdmin):

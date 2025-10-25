@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class VectorDBService:
     """Service class for module-level vector database operations"""
     
-    def __init__(self, vector_store_type='chromadb'):
+    def __init__(self, vector_store_type=settings.VECTOR_DB_CONFIG.get('VECTOR_STORE', 'chromadb')):
         self.vector_store_type = vector_store_type
         self.embedding_model = getattr(settings, 'VECTOR_DB_CONFIG', {}).get(
             'EMBEDDINGS_MODEL', 

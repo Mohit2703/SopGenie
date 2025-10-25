@@ -14,7 +14,8 @@ from pathlib import Path
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+# load_dotenv()
+load_dotenv('.env.local')
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')  # Or your preferred path
@@ -35,12 +36,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-^g5kklf__ns1n^*kk-v_wv%@-820qsmhmf1fy4pjma(p7-d-%d'
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", 'django-insecure-^g5kklf__ns1n^*kk-v_wv%@-820qsmhmf1fy4pjma(p7-d-%d')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv("DJANGO_DEBUG", "True") == "True"
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS","127.0.0.1").split(",")
+
+# Disable CSRF for API endpoints (important for CORS)
+CSRF_TRUSTED_ORIGINS = os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS","http://localhost:3000,http://127.0.0.1:3000,http://192.168.31.166:3000").split(",")
 
 
 # Application definition
@@ -53,7 +57,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'rest_framework',   # 👈 add this
+    'rest_framework',
     'django_filters',
     'rag_app',
     "corsheaders",
@@ -77,7 +81,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'corsheaders.middleware.CorsMiddleware',  # Add this at the TOP
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
 ]
 
@@ -106,8 +110,15 @@ WSGI_APPLICATION = 'sop_rag.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        # 'ENGINE': 'django.db.backends.sqlite3',
+        'ENGINE': 'django.db.backends.{}'.format(
+             os.getenv('DATABASE_ENGINE', 'sqlite3')
+         ),
+         'NAME': os.getenv('DATABASE_NAME', BASE_DIR / 'db.sqlite3'),
+         'USER': os.getenv('DATABASE_USERNAME', 'myprojectuser'),
+         'PASSWORD': os.getenv('DATABASE_PASSWORD', 'password'),
+         'HOST': os.getenv('DATABASE_HOST', '127.0.0.1'),
+         'PORT': os.getenv('DATABASE_PORT', 5432),
     }
 }
 
@@ -156,7 +167,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 AUTH_USER_MODEL = 'rag_app.User'
 
 # CORS settings
-CORS_ALLOWED_ORIGINS = [
+CORS_ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if os.getenv("CORS_ALLOWED_ORIGINS") else [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://192.168.31.166:3000"
@@ -185,17 +196,12 @@ CORS_ALLOW_METHODS = [
     'PUT',
 ]
 
-# Disable CSRF for API endpoints (important for CORS)
-CSRF_TRUSTED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://192.168.31.166:3000"
-]
+# Celery Configuration
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", 'redis://localhost:6379/0')
+# 'redis://localhost:6379/0'
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", 'django-db')  # This works well for storing task results in DB
 
-CELERY_BROKER_URL = 'redis://localhost:6379/0'
-CELERY_RESULT_BACKEND = 'django-db'  # This works well for storing task results in DB
-
-CELERY_CACHE_BACKEND = 'django-cache'
+CELERY_CACHE_BACKEND = os.getenv("CELERY_CACHE_BACKEND", 'django-cache')
 
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
@@ -204,9 +210,14 @@ CELERY_TIMEZONE = 'UTC'
 
 # Vector DB Configuration
 VECTOR_DB_CONFIG = {
-    'EMBEDDINGS_MODEL': 'all-MiniLM-L6-v2',
-    'CHUNK_SIZE': 1000,
-    'CHUNK_OVERLAP': 200,
-    'VECTOR_STORE': 'chromadb',
+    'EMBEDDINGS_MODEL': os.getenv("EMBEDDINGS_MODEL", 'sentence-transformers/all-MiniLM-L6-v2'),
+    'CHUNK_SIZE': int(os.getenv("CHUNK_SIZE", 1000)),
+    'CHUNK_OVERLAP': int(os.getenv("CHUNK_OVERLAP", 200)),
+    'EMBEDDING_DIMENSION': int(os.getenv("EMBEDDING_DIMENSION", 384)),
+    'VECTOR_STORE': os.getenv("VECTOR_STORE", 'chromadb'),
 }
 
+LANGCHAIN_TRACING_V2 = os.getenv("LANGCHAIN_TRACING_V2", 'true')
+LANGCHAIN_ENDPOINT = os.getenv("LANGCHAIN_ENDPOINT", 'https://api.smith.langchain.com')
+LANGCHAIN_API_KEY = os.getenv("LANGCHAIN_API_KEY")
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")

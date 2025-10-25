@@ -1,6 +1,9 @@
 import os
 import uuid
+import sys
+
 from unstructured.partition.pdf import partition_pdf
+
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -10,10 +13,16 @@ from langchain_chroma import Chroma
 from langchain.retrievers.multi_vector import MultiVectorRetriever
 from langchain.storage import InMemoryStore
 
-os.environ['LANGCHAIN_TRACING_V2'] = 'true'
-os.environ['LANGCHAIN_ENDPOINT'] = 'https://api.smith.langchain.com'
-os.environ['LANGCHAIN_API_KEY'] = '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'
-os.environ["MISTRAL_API_KEY"] = "AlDrAPD0LXNXU4xMMXaUFIiG5KvWgNUX"
+import django
+from django.conf import settings
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'sop_rag.settings')
+django.setup()
+
+os.environ['LANGCHAIN_TRACING_V2'] = settings.LANGCHAIN_TRACING_V2
+os.environ['LANGCHAIN_ENDPOINT'] = settings.LANGCHAIN_ENDPOINT
+os.environ['LANGCHAIN_API_KEY'] = settings.LANGCHAIN_API_KEY
+os.environ["MISTRAL_API_KEY"] = settings.MISTRAL_API_KEY
 
 llm = init_chat_model("mistral-small-latest", model_provider="mistralai", temperature=0.0)
 

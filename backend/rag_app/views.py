@@ -1,39 +1,38 @@
-from django.shortcuts import render
+## django imports
 from django.conf import settings
+from django.http import FileResponse, Http404
+from django.shortcuts import get_object_or_404
+from django.db.models import Q
+
+## other imports
 import os
+import mimetypes
 import uuid
 from http import HTTPStatus
-from rest_framework.permissions import AllowAny
-from django.http import FileResponse, Http404  # Correct import - from django.http
-from django.shortcuts import get_object_or_404, redirect
-from django.views import View
 
-from django.db.models import Case, CharField, Q, Value, When
+## rest framework imports
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework.viewsets import ReadOnlyModelViewSet
-from rest_framework.pagination import PageNumberPagination
+
+## app model imports
 from vectordb.models import ModuleVectorStore
 from .models import User, Project, Module, Document, ProjectMember
+
+## app serializer imports
 from .serializers import UserSerializer, ProjectSerializer, ModuleSerializer, DocumentSerializer, ProjectMemberSerializer
 
-import mimetypes
-# from ..train_model.create_vector_db import train_model
-
-def generate_unique_filename(instance, filename):
-    """Generate unique filename using UUID"""
-    ext = filename.split('.')[-1].lower()
-    unique_id = uuid.uuid4().hex[:8]  # Use uuid4 for random UUID
-    return f"modules/{instance.module.id}/{unique_id}_{filename}"
 class UserView(APIView):
+    ## Allow any user (authenticated or not) to access this view
     permission_classes = [AllowAny]
+
     def post(self, request):
         serializer = UserSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=HTTPStatus.CREATED)
         return Response(serializer.errors, status=HTTPStatus.BAD_REQUEST)
-    
+
     def get(self, request, user_id=None):
         if user_id:
             user = get_object_or_404(User, id=user_id)
@@ -42,7 +41,7 @@ class UserView(APIView):
         users = User.objects.all()
         serializer = UserSerializer(users, many=True)
         return Response(serializer.data)
-    
+  
     def put(self, request, user_id):
         user = get_object_or_404(User, id=user_id)
         serializer = UserSerializer(user, data=request.data, partial=True)
@@ -64,6 +63,7 @@ class UserInfoView(APIView):
         serializer = UserSerializer(user)
         return Response(serializer.data)
 
+
 class CreateUserView(APIView):
     def post(self, request):
         serializer = UserSerializer(data=request.data)
@@ -71,6 +71,7 @@ class CreateUserView(APIView):
             serializer.save()
             return Response(serializer.data, status=HTTPStatus.CREATED)
         return Response(serializer.errors, status=HTTPStatus.BAD_REQUEST)
+
 
 class ProjectView(APIView):
     def post(self, request):
@@ -149,6 +150,7 @@ class ProjectView(APIView):
         project.delete()
         return Response(status=HTTPStatus.NO_CONTENT)
 
+
 class SearchUserView(APIView):
     def get(self, request):
         query = request.GET.get('q', '')  # Use request.GET instead of request.query_params
@@ -163,6 +165,7 @@ class SearchUserView(APIView):
         ).exclude(id=request.user.id)[:10]
         serializer = UserSerializer(users, many=True)
         return Response(serializer.data, status=HTTPStatus.OK)
+
 
 class ProjectMemberView(APIView):
     def get(self, request, project_id):
@@ -222,7 +225,8 @@ class ProjectMemberView(APIView):
             membership.save(update_fields=['role'])
             return Response({"detail": "User role updated"}, status=HTTPStatus.OK)
         return Response({"error": "Role not provided"}, status=HTTPStatus.BAD_REQUEST) 
-   
+
+
 class ModuleView(APIView):
     def post(self, request, project_id):
         print('project_id: ', project_id)
@@ -293,6 +297,7 @@ class ModuleView(APIView):
         module.delete()
         return Response(status=HTTPStatus.NO_CONTENT)
 
+
 class DocumentView(APIView):
     def get(self, request, document_id=None):
         if document_id:
@@ -357,7 +362,7 @@ class DocumentView(APIView):
         document = get_object_or_404(Document, id=document_id)
         document.delete()
         return Response({"detail": "Document deleted successfully"}, status=HTTPStatus.NO_CONTENT)
-    
+  
 
 class ProjectModuleListView(APIView):
     def get(self, request, project_id):
@@ -419,6 +424,8 @@ class DocumentModulesListView(APIView):
             DocumentSerializer(document).data,
             status=HTTPStatus.CREATED
         )
+
+
 class DocumentDownloadView(APIView):
     def get(self, request, document_id):
         """Download a document file"""
@@ -483,6 +490,7 @@ class DocumentDownloadView(APIView):
                 status=HTTPStatus.INTERNAL_SERVER_ERROR
             )
 
+
 class DocumentStreamView(APIView):
     def get(self, request, document_id):
         """Stream a document file for viewing in browser"""
@@ -523,6 +531,7 @@ class DocumentStreamView(APIView):
         except Exception as e:
             raise Http404(f"File download error: {str(e)}")
 
+
 class DocumentInfoView(APIView):
     
     def get(self, request, document_id):
@@ -554,3 +563,4 @@ class DocumentInfoView(APIView):
                 {"error": f"Failed to get document info: {str(e)}"}, 
                 status=HTTPStatus.INTERNAL_SERVER_ERROR
             )
+
