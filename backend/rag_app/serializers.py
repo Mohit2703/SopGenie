@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import User, Project, Module, Document
+from .models import User, Project, Module, Document, ProjectMember
 
 class UserSerializer(serializers.ModelSerializer):
     """Serializer for User model"""
@@ -271,3 +271,18 @@ class DocumentBulkUploadSerializer(serializers.Serializer):
         """Validate module exists and is active"""
         if not Module.objects.filter(id=value, is_active=True).exists():
             raise serializers.ValidationError
+
+
+class ProjectMemberSerializer(serializers.ModelSerializer):
+    """Serializer for ProjectMember model"""
+    ## also return user info
+    user = UserSerializer(read_only=True)
+    project = ProjectListSerializer(read_only=True)
+
+    class Meta:
+        model = ProjectMember
+        fields = [
+            'id', 'project', 'user', 'role',
+            'joined_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'joined_at', 'updated_at']

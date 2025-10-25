@@ -1,6 +1,7 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, use } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { useUser } from '@/lib/contexts/UserContext';
 import { useQuery } from '@tanstack/react-query';
 import DocumentUpload from '@/components/documents/DocumentUpload';
 import DocumentList from '@/components/documents/DocumentList';
@@ -8,12 +9,14 @@ import VectorDBManager from '@/components/vectordb/VectorDBManager';
 import api from '@/lib/api';
 import { Folder, ArrowLeft } from 'lucide-react';
 
-export default function ModuleDetailPage() {
+export default function ModuleDetailPage({ params }) {
+  const { user } = useUser();
+  const unwrappedParams = use(params);
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const params = useParams();
   const router = useRouter();
-  const { id: projectId, moduleId } = params;
+  const { id: projectId, moduleId } = unwrappedParams;
+  const isAdmin = user?.role === 'Normal User' ? true : false;
 
   useEffect(() => {
     const token = localStorage.getItem('Token');
@@ -125,21 +128,25 @@ export default function ModuleDetailPage() {
             </div>
 
             {/* Document Upload Section */}
-            <div className="bg-white p-6 rounded-lg shadow-md">
-              <h3 className="text-lg font-semibold mb-4 text-slate-800">Upload Documents</h3>
-              <DocumentUpload 
-                projectId={projectId}
-                moduleId={moduleId}
-                onUploadSuccess={() => {
-                  // The document list will automatically refresh via React Query
-                }}
-              />
-            </div>
+            {isAdmin && (
+              <div className="bg-white p-6 rounded-lg shadow-md">
+                <h3 className="text-lg font-semibold mb-4 text-slate-800">Upload Documents</h3>
+                <DocumentUpload 
+                  projectId={projectId}
+                  moduleId={moduleId}
+                  onUploadSuccess={() => {
+                    // The document list will automatically refresh via React Query
+                    // Also refresh page
+                    router.refresh();
+                  }}
+                />
+              </div>
+            )}
 
             {/* Document List Section */}
             <div className="bg-white p-6 rounded-lg shadow-md">
               <h3 className="text-lg font-semibold mb-4 text-slate-800">Documents</h3>
-              <DocumentList moduleId={moduleId} />
+              <DocumentList moduleId={moduleId} isAdmin={isAdmin} />
             </div>
           </div>
 
@@ -149,6 +156,8 @@ export default function ModuleDetailPage() {
               <VectorDBManager 
                 moduleId={moduleId} 
                 moduleName={module.name}
+                projectId={projectId}
+                isAdmin={isAdmin}
               />
             </div>
           </div>

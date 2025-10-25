@@ -3,10 +3,12 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { File, Download, Trash2, Calendar, User, FileText, Search } from 'lucide-react';
 import api from '@/lib/api';
+import { useRouter } from 'next/navigation';
 
-export default function DocumentList({ moduleId }) {
+export default function DocumentList({ moduleId, isAdmin }) {
   const [searchTerm, setSearchTerm] = useState('');
   const queryClient = useQueryClient();
+  const router = useRouter();
 
   const { data: documents = [], isLoading } = useQuery({
     queryKey: ['documents', moduleId],
@@ -21,6 +23,8 @@ export default function DocumentList({ moduleId }) {
   const deleteDocumentMutation = useMutation({
     mutationFn: (documentId) => api.callAPI('delete', `/documents/${documentId}/`),
     onSuccess: () => {
+      // Invalidate and refresh
+      router.refresh();
       queryClient.invalidateQueries({ queryKey: ['documents', moduleId] });
     }
   });
@@ -159,6 +163,7 @@ export default function DocumentList({ moduleId }) {
                 >
                   <Download size={16} />
                 </button>
+                {isAdmin && (
                 <button
                   onClick={() => handleDeleteDocument(document.id)}
                   className="p-2 text-red-600 hover:text-red-800 hover:bg-red-100 rounded transition-colors"
@@ -167,6 +172,7 @@ export default function DocumentList({ moduleId }) {
                 >
                   <Trash2 size={16} />
                 </button>
+                )}
               </div>
             </div>
           ))}

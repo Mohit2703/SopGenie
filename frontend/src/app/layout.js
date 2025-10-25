@@ -1,5 +1,6 @@
 import './globals.css'
 import Providers from '@/lib/providers'
+import { UserProvider } from '@/lib/contexts/UserContext';
 
 export const metadata = {
   title: 'SOP RAG System',
@@ -11,7 +12,9 @@ export default function RootLayout({ children }) {
     <html lang="en">
       <body>
         <Providers>
-          {children}
+          <UserProvider>
+            {children}
+          </UserProvider>
         </Providers>
       </body>
     </html>

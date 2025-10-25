@@ -4,8 +4,28 @@ from django.utils.html import format_html
 from django.urls import reverse
 from django.utils.safestring import mark_safe
 from django.db.models import Count, Q
-from .models import User, Project, Module, Document
+from .models import User, Project, Module, Document, ProjectMember
 import os
+
+@admin.register(ProjectMember)
+class ProjectMemberAdmin(admin.ModelAdmin):
+    """Admin for Project Members"""
+    list_display = ['project_link', 'user_link', 'role', 'joined_at', 'updated_at']
+    list_filter = ['role', 'joined_at', 'updated_at']
+    search_fields = ['project__name', 'user__username', 'role']
+    ordering = ['-joined_at']
+    
+    def project_link(self, obj):
+        """Display project with link"""
+        url = reverse('admin:rag_app_project_change', args=[obj.project.id])
+        return format_html('<a href="{}">{}</a>', url, obj.project.name)
+    project_link.short_description = 'Project'
+    
+    def user_link(self, obj):
+        """Display user with link"""
+        url = reverse('admin:rag_app_user_change', args=[obj.user.id])
+        return format_html('<a href="{}">{}</a>', url, obj.user.username)
+    user_link.short_description = 'User'
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):

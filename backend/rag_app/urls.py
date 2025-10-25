@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import UserView, ProjectView, ModuleView, DocumentView, ProjectModuleListView, DocumentModulesListView, DocumentDownloadView, DocumentStreamView, DocumentInfoView
+from .views import UserView, UserInfoView, ProjectView, ModuleView, DocumentView, ProjectModuleListView, DocumentModulesListView, DocumentDownloadView, DocumentStreamView, DocumentInfoView, ProjectMemberView, SearchUserView
 from rest_framework.authtoken.views import obtain_auth_token
 
 urlpatterns = [
@@ -8,10 +8,14 @@ urlpatterns = [
 
     path('users/', UserView.as_view(), name='user-list-create'),
     path('users/<int:user_id>/', UserView.as_view(), name='user-detail'),
+    path('user_info/', UserInfoView.as_view(), name='user-info'),
+    path('search_users/', SearchUserView.as_view(), name='search-users'),
 
     # Project routes
     path('projects/', ProjectView.as_view(), name='project-list-create'),
     path('projects/<int:project_id>/', ProjectView.as_view(), name='project-detail'),
+    path('projects/<int:project_id>/members/', ProjectMemberView.as_view(), name='project-members'),
+    path('projects/<int:project_id>/members/<int:user_id>/', ProjectMemberView.as_view(), name='project-member-detail'),
     path('projects/<int:project_id>/modules/', ProjectModuleListView.as_view(), name='project-modules'),
 
     # Module routes

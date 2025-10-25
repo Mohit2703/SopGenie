@@ -797,6 +797,111 @@ class ChatView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+
+    def get(self, request, module_id, session_id=None):
+        """Get chat sessions"""
+        if not session_id:
+            sessions = ChatSession.objects.filter(
+                user=request.user,
+                module_vector_store__module_id=module_id
+            ).order_by('-created_at').reverse()
+            serializer = ChatSessionSerializer(sessions, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        """Get a specific chat session"""
+        session = get_object_or_404(
+            ChatSession,
+            session_id=session_id,
+            module_vector_store__module_id=module_id,
+            user=request.user
+        )
+
+        ### get all questions and answers for the session
+        questions = Question.objects.filter(
+            chat_session=session,
+            created_by=request.user
+        ).order_by('created_at')
+
+        chat_history = []
+        for question in questions:
+            answers = Answer.objects.filter(
+                question=question,
+                created_by=request.user
+            )
+            for answer in answers:
+                chat_history.append({
+                    "question": question.text,
+                    "answer": answer.text,
+                    "asked_at": question.created_at,
+                    "answered_at": answer.created_at
+                })
+
+        return Response({
+            "session_id": session.session_id,
+            "title": session.title,
+            "created_at": session.created_at,
+            "chat_history": chat_history
+        }, status=status.HTTP_200_OK)
+
+
+class DeleteSessionView(APIView):
+    """Delete a chat session"""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, session_id):
+        """Delete chat session and associated data"""
+        try:
+            session = get_object_or_404(
+                ChatSession,
+                session_id=session_id,
+                user=request.user
+            )
+            session.delete()
+            return Response({
+                "success": True,
+                "message": "Chat session deleted successfully",
+                "session_id": session_id
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Failed to delete chat session: {str(e)}")
+            return Response(
+                {"error": f"Failed to delete chat session: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class EditSessionView(APIView):
+    """Edit chat session details"""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, session_id):
+        """Edit chat session title"""
+        try:
+            session = get_object_or_404(
+                ChatSession,
+                session_id=session_id,
+                user=request.user
+            )
+            new_title = request.data.get('title')
+            if not new_title:
+                return Response(
+                    {"error": "Title is required"}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            session.title = new_title
+            session.save()
+            return Response({
+                "success": True,
+                "message": "Chat session title updated successfully",
+                "session_id": session.session_id,
+                "new_title": session.title
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Failed to edit chat session: {str(e)}")
+            return Response(
+                {"error": f"Failed to edit chat session: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
 class GiveRating(APIView):
 
     """Give rating to a chat answer"""

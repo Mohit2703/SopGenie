@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 
-export default function VectorDBManager({ moduleId, moduleName }) {
+export default function VectorDBManager({ moduleId, moduleName, projectId, isAdmin }) {
   const [showShareLink, setShowShareLink] = useState(false);
   const [copied, setCopied] = useState(false);
   const queryClient = useQueryClient();
@@ -125,7 +125,7 @@ export default function VectorDBManager({ moduleId, moduleName }) {
   };
 
   const getChatUrl = () => {
-    return `${window.location.origin}/chat/${moduleId}`;
+    return `${window.location.origin}/projects/${projectId}/modules/${moduleId}/chat/`;
   };
 
   const copyToClipboard = () => {
@@ -354,7 +354,7 @@ export default function VectorDBManager({ moduleId, moduleName }) {
           {/* Action Buttons for Ready State */}
           <div className="space-y-2">
             <a
-              href={`/chat/${moduleId}`}
+              href={`/projects/${projectId}/modules/${moduleId}/chat/`}
               className="w-full bg-blue-500 hover:bg-blue-600 text-white px-4 py-3 rounded-lg flex items-center justify-center space-x-2 transition-colors font-medium"
             >
               <MessageCircle size={20} />
@@ -369,14 +369,16 @@ export default function VectorDBManager({ moduleId, moduleName }) {
               <span>Share Chat Link</span>
             </button>
 
-            <button
-              onClick={() => handleCreateVectorDB(true)}
-              disabled={createVectorDB.isPending}
-              className="w-full bg-white border-2 border-orange-500 text-orange-600 hover:bg-orange-50 px-4 py-3 rounded-lg flex items-center justify-center space-x-2 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <RefreshCw size={20} className={createVectorDB.isPending ? 'animate-spin' : ''} />
-              <span>{createVectorDB.isPending ? 'Recreating...' : 'Recreate Vector DB'}</span>
-            </button>
+            {isAdmin && (
+              <button
+                onClick={() => handleCreateVectorDB(true)}
+                disabled={createVectorDB.isPending}
+                className="w-full bg-white border-2 border-orange-500 text-orange-600 hover:bg-orange-50 px-4 py-3 rounded-lg flex items-center justify-center space-x-2 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <RefreshCw size={20} className={createVectorDB.isPending ? 'animate-spin' : ''} />
+                <span>{createVectorDB.isPending ? 'Recreating...' : 'Recreate Vector DB'}</span>
+              </button>
+            )}
           </div>
 
           {/* Share Link Panel */}
@@ -419,14 +421,16 @@ export default function VectorDBManager({ moduleId, moduleName }) {
             </p>
           </div>
 
-          <button
-            onClick={() => handleCreateVectorDB(true)}
-            disabled={createVectorDB.isPending}
-            className="w-full bg-red-500 hover:bg-red-600 text-white px-4 py-3 rounded-lg flex items-center justify-center space-x-2 transition-colors font-medium disabled:opacity-50"
-          >
-            <RefreshCw size={20} className={createVectorDB.isPending ? 'animate-spin' : ''} />
-            <span>{createVectorDB.isPending ? 'Retrying...' : 'Retry Creation'}</span>
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => handleCreateVectorDB(true)}
+              disabled={createVectorDB.isPending}
+              className="w-full bg-red-500 hover:bg-red-600 text-white px-4 py-3 rounded-lg flex items-center justify-center space-x-2 transition-colors font-medium disabled:opacity-50"
+            >
+              <RefreshCw size={20} className={createVectorDB.isPending ? 'animate-spin' : ''} />
+              <span>{createVectorDB.isPending ? 'Retrying...' : 'Retry Creation'}</span>
+            </button>
+          )}
         </div>
       )}
 
@@ -442,23 +446,25 @@ export default function VectorDBManager({ moduleId, moduleName }) {
             </p>
           </div>
 
-          <button
-            onClick={() => handleCreateVectorDB(false)}
-            disabled={createVectorDB.isPending}
-            className="w-full bg-blue-500 hover:bg-blue-600 text-white px-4 py-3 rounded-lg flex items-center justify-center space-x-2 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {createVectorDB.isPending ? (
-              <>
-                <Loader2 size={20} className="animate-spin" />
-                <span>Creating Vector Database...</span>
-              </>
-            ) : (
-              <>
-                <Play size={20} />
-                <span>Create Vector Database</span>
-              </>
-            )}
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => handleCreateVectorDB(false)}
+              disabled={createVectorDB.isPending}
+              className="w-full bg-blue-500 hover:bg-blue-600 text-white px-4 py-3 rounded-lg flex items-center justify-center space-x-2 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {createVectorDB.isPending ? (
+                <>
+                  <Loader2 size={20} className="animate-spin" />
+                  <span>Creating Vector Database...</span>
+                </>
+              ) : (
+                <>
+                  <Play size={20} />
+                  <span>Create Vector Database</span>
+                </>
+              )}
+            </button>
+          )}
 
           {vectorStore?.document_count === 0 && (
             <p className="text-xs text-amber-600 text-center">

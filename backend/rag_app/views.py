@@ -13,9 +13,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import ReadOnlyModelViewSet
 from rest_framework.pagination import PageNumberPagination
-
-from .models import User, Project, Module, Document
-from .serializers import UserSerializer, ProjectSerializer, ModuleSerializer, DocumentSerializer
+from vectordb.models import ModuleVectorStore
+from .models import User, Project, Module, Document, ProjectMember
+from .serializers import UserSerializer, ProjectSerializer, ModuleSerializer, DocumentSerializer, ProjectMemberSerializer
 
 import mimetypes
 # from ..train_model.create_vector_db import train_model
@@ -55,6 +55,14 @@ class UserView(APIView):
         user = get_object_or_404(User, id=user_id)
         user.delete()
         return Response(status=HTTPStatus.NO_CONTENT)
+
+
+class UserInfoView(APIView):
+    permission_classes = [AllowAny]
+    def get(self, request):
+        user = request.user
+        serializer = UserSerializer(user)
+        return Response(serializer.data)
 
 class CreateUserView(APIView):
     def post(self, request):
@@ -141,7 +149,80 @@ class ProjectView(APIView):
         project.delete()
         return Response(status=HTTPStatus.NO_CONTENT)
 
+class SearchUserView(APIView):
+    def get(self, request):
+        query = request.GET.get('q', '')  # Use request.GET instead of request.query_params
+        
+        if len(query) < 2:
+            return Response({'users': []}, status=HTTPStatus.OK)
+        
+        users = User.objects.filter(
+            Q(username__icontains=query) |
+            Q(email__icontains=query) |
+            Q(name__icontains=query)
+        ).exclude(id=request.user.id)[:10]
+        serializer = UserSerializer(users, many=True)
+        return Response(serializer.data, status=HTTPStatus.OK)
+
+class ProjectMemberView(APIView):
+    def get(self, request, project_id):
+        user = request.user
+        user_role = ProjectMember.objects.filter(project_id=project_id, user=user).first()
+        if not user_role:
+            return Response({"error": "You are not a member of this project."}, status=HTTPStatus.FORBIDDEN)
+        project_members = ProjectMember.objects.filter(project_id=project_id)
+        serializer = ProjectMemberSerializer(project_members, many=True)
+        data = {
+            "user_role": user_role.role,
+            "members": serializer.data
+        }
+        return Response(data, status=HTTPStatus.OK)
+
+    def post(self, request, project_id):
+        data = request.data
+        user_id = data.get("user_id")
+        role = data.get("role", "viewer")
+        user = request.user
+        
+        user_role = ProjectMember.objects.filter(project_id=project_id, user=user).first()
+
+        if not user_role or user_role.role not in ('admin', 'owner'):
+            return Response({"error": "Only admins can add members."}, status=HTTPStatus.FORBIDDEN)
+
+        project = get_object_or_404(Project, id=project_id)
+        user = get_object_or_404(User, id=user_id)
+
+        ProjectMember.objects.create(
+            project=project,
+            user=user,
+            role=role
+        )
+        return Response({"detail": "User added to project"}, status=HTTPStatus.OK)
     
+    def delete(self, request, project_id, user_id):
+        user = request.user
+        user_role = ProjectMember.objects.filter(project_id=project_id, user=user).first()
+        if not user_role or user_role.role not in ('admin', 'owner'):
+            return Response({"error": "Only admins can remove members."}, status=HTTPStatus.FORBIDDEN)
+        
+        membership = get_object_or_404(ProjectMember, project_id=project_id, user_id=user_id)
+        membership.delete()
+        return Response({"detail": "User removed from project"}, status=HTTPStatus.NO_CONTENT)
+
+    def put(self, request, project_id, user_id):
+        user = request.user
+        user_role = ProjectMember.objects.filter(project_id=project_id, user=user).first()
+        if not user_role or user_role.role not in ('admin', 'owner'):
+            return Response({"error": "Only admins can update member roles."}, status=HTTPStatus.FORBIDDEN)
+        
+        membership = get_object_or_404(ProjectMember, project_id=project_id, user_id=user_id)
+        new_role = request.data.get("role")
+        if new_role:
+            membership.role = new_role
+            membership.save(update_fields=['role'])
+            return Response({"detail": "User role updated"}, status=HTTPStatus.OK)
+        return Response({"error": "Role not provided"}, status=HTTPStatus.BAD_REQUEST) 
+   
 class ModuleView(APIView):
     def post(self, request, project_id):
         print('project_id: ', project_id)
@@ -328,7 +409,12 @@ class DocumentModulesListView(APIView):
             module=module,
             uploaded_by=request.user  # Fixed field name
         )
-        
+
+        # if vector store exists for module, update status to empty to trigger re-indexing
+        vector_store = ModuleVectorStore.objects.get(module=module)
+        vector_store.status = 'empty'
+        vector_store.save(update_fields=['status'])
+
         return Response(
             DocumentSerializer(document).data,
             status=HTTPStatus.CREATED

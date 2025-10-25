@@ -11,7 +11,9 @@ from .views import (
     QueryLogDetailView,
     VectorDBStatsView,
     ChatView,
-    GiveRating
+    GiveRating,
+    DeleteSessionView,
+    EditSessionView
 )
 
 app_name = 'vectordb'
@@ -41,4 +43,8 @@ urlpatterns = [
     path("chat/<int:module_id>/<str:session_id>/", ChatView.as_view(), name='chat-url'),
     path("rating/<str:answer_id>/", GiveRating.as_view(), name='rating-url'),
     path('chat/<int:module_id>/', ChatView.as_view(), name='chat-url'),
+    path("chat_session/<int:module_id>/", ChatView.as_view(), name='chat-session-url'),
+    path("chat_session/<int:module_id>/<str:session_id>/", ChatView.as_view(), name='chat-session-url'),
+    path("delete_session/<str:session_id>/", DeleteSessionView.as_view(), name='delete-session-url'),
+    path("edit_session/<str:session_id>/", EditSessionView.as_view(), name='edit-session-url'),
 ]

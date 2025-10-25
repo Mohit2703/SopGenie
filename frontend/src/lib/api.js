@@ -89,12 +89,6 @@ class callAPI {
   // Method to make DELETE requests
   async delete(endpoint, token = null) {
     try {
-      const config = {};
-      if (token) {
-        config.headers = {
-          'Authorization': `Token ${token}`,
-        };
-      }
       const response = await axios.delete(`${API_BASE_URL}${endpoint}`, config);
       return response.data;
     } catch (error) {
