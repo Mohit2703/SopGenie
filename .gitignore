@@ -9,3 +9,4 @@ docs/*
 */figures/*
 */vector_data/
 */.env.local
+*/media/*
