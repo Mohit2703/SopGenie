@@ -10,3 +10,4 @@ docs/*
 */vector_data/
 */.env.local
 */media/*
+*/.env*
