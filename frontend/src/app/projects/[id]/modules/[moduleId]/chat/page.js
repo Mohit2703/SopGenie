@@ -183,11 +183,11 @@ export default function ChatPage({ params }) {
       // Using your chat API
       let endpoint;
       if (currentSession?.session_id) {
-        // Existing session: /vectordb/chat/module_id/session_id/
-        endpoint = `/vectordb/chat/${moduleId}/${currentSession.session_id}/`;
+        // Existing session: /vectordb/chat_session/module_id/session_id/
+        endpoint = `/vectordb/chat_session/${moduleId}/${currentSession.session_id}/`;
       } else {
-        // New session: /vectordb/chat/module_id/
-        endpoint = `/vectordb/chat/${moduleId}/`;
+        // New session: /vectordb/chat_session/module_id/
+        endpoint = `/vectordb/chat_session/${moduleId}/`;
       }
       
       const data = await api.callAPI('post', endpoint, { question: questionText });

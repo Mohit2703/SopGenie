@@ -14,7 +14,7 @@ from pathlib import Path
 import os
 from dotenv import load_dotenv
 
-# load_dotenv()
+load_dotenv()
 load_dotenv('.env.local')
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -23,10 +23,6 @@ MEDIA_URL = '/media/'
 
 # Ensure the directory exists
 os.makedirs(MEDIA_ROOT, exist_ok=True)
-# MEDIA_URL = '/media/'
-# BASE_DIR = os.getenv('FOLDER_PATH')
-# MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
-
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -41,7 +37,7 @@ SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", 'django-insecure-^g5kklf__ns1n^*kk-v
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DJANGO_DEBUG", "True") == "True"
 
-ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS","127.0.0.1").split(",")
+ALLOWED_HOSTS = []
 
 # Disable CSRF for API endpoints (important for CORS)
 CSRF_TRUSTED_ORIGINS = os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS","http://localhost:3000,http://127.0.0.1:3000,http://192.168.31.166:3000").split(",")

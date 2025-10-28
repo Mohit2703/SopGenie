@@ -1,5 +1,21 @@
 import os
-import uuid
+import sys
+
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'sop_rag.settings')
+
+import django
+django.setup()
+
+from django.conf import settings
+
+os.environ['LANGCHAIN_TRACING_V2'] = settings.LANGCHAIN_TRACING_V2
+os.environ['LANGCHAIN_ENDPOINT'] = settings.LANGCHAIN_ENDPOINT
+os.environ['LANGCHAIN_API_KEY'] = settings.LANGCHAIN_API_KEY
+os.environ["MISTRAL_API_KEY"] = settings.MISTRAL_API_KEY
+
 from langchain_core.documents import Document
 from typing_extensions import List, TypedDict
 from langchain_chroma import Chroma
@@ -12,19 +28,12 @@ from langchain.storage import InMemoryStore
 from langchain import hub 
 from langchain.prompts.chat import ChatPromptTemplate
 
-
-os.environ['LANGCHAIN_TRACING_V2'] = 'true'
-os.environ['LANGCHAIN_ENDPOINT'] = 'https://api.smith.langchain.com'
-os.environ['LANGCHAIN_API_KEY'] = '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'
-os.environ["MISTRAL_API_KEY"] = "AlDrAPD0LXNXU4xMMXaUFIiG5KvWgNUX"
-
 class State(TypedDict):
     question: str
     context: List[Document]
     previous_chat: List[dict]
     answer: str
-
-
+                                                                                        
 class CREATE_VECTOR_DB:
     def __init__(self, model_name: str, model_provider: str, temperature: float):
         self.llm = init_chat_model("mistral-large-latest", model_provider=model_provider, temperature=temperature)
