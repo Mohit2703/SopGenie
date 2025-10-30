@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  web:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: bash -c "python manage.py makemigrations && python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+    container_name: myapp
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      # Remove the 'target' line since Dockerfile is single-stage
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000/api
+      - NEXT_PUBLIC_APP_NAME=SOP RAG System
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - web
