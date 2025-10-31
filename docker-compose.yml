@@ -1,21 +1,165 @@
 version: '3.8'
 
 services:
+  db:
+    image: postgres:15
+    container_name: sop_rag_db
+    restart: unless-stopped
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: sop_rag_redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    # No external port needed in production
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   web:
     build:
       context: ./backend
       dockerfile: Dockerfile
     command: bash -c "python manage.py makemigrations && python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
-    container_name: myapp
+    container_name: sop_rag_backend
+    restart: unless-stopped
     volumes:
       - ./backend:/app
+      - media_volume:/app/media
+      - vectordb_volume:/app/vectordb_data
     ports:
       - "8000:8000"
+    environment:
+      # Database settings
+      # - DATABASE_ENGINE=${DATABASE_ENGINE}
+      # - DATABASE_NAME=${DATABASE_NAME}              # ✅ Matches POSTGRES_DB
+      # - DATABASE_USER=${DATABASE_USER}
+      # - DATABASE_PASSWORD=${DATABASE_PASSWORD}
+      # - DATABASE_HOST=${DATABASE_HOST}
+      # - DATABASE_PORT=${DATABASE_PORT}
+      # Celery/Redis settings
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL}   # ✅ Fixed: redis not localhost
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+      - CELERY_CACHE_BACKEND=${CELERY_CACHE_BACKEND}
+      - REDIS_URL=${REDIS_URL}
+      # Vector DB settings
+      - EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL}
+      - CHUNK_SIZE=${CHUNK_SIZE}
+      - CHUNK_OVERLAP=${CHUNK_OVERLAP}
+      - EMBEDDING_DIMENSION=${EMBEDDING_DIMENSION}
+      - VECTOR_STORE=${VECTOR_STORE}
+      # LangChain settings
+      - LANGCHAIN_TRACING_V2=true
+      - LANGCHAIN_ENDPOINT=https://api.smith.langchain.com
+      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+
+  celery:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: sop_rag_celery
+    restart: unless-stopped
+    command: celery -A sop_rag worker --loglevel=info --concurrency=2
+    volumes:
+      - ./backend:/app
+      - media_volume:/app/media
+      - vectordb_volume:/app/vectordb_data
+    environment:
+      # Database settings
+      # - DATABASE_ENGINE=${DATABASE_ENGINE}
+      # - DATABASE_NAME=${DATABASE_NAME}              # ✅ Fixed: matches POSTGRES_DB
+      # - DATABASE_USER=${DATABASE_USER}
+      # - DATABASE_PASSWORD=${DATABASE_PASSWORD}
+      # - DATABASE_HOST=${DATABASE_HOST}
+      # - DATABASE_PORT=${DATABASE_PORT}
+      # Celery/Redis settings
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL}   # ✅ Fixed: redis not localhost
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+      - CELERY_CACHE_BACKEND=${CELERY_CACHE_BACKEND}
+      - REDIS_URL=${REDIS_URL}
+      # Vector DB settings
+      - EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL}
+      - CHUNK_SIZE=${CHUNK_SIZE}
+      - CHUNK_OVERLAP=${CHUNK_OVERLAP}
+      - EMBEDDING_DIMENSION=${EMBEDDING_DIMENSION}
+      - VECTOR_STORE=${VECTOR_STORE}
+      # LangChain settings
+      - LANGCHAIN_TRACING_V2=${LANGCHAIN_TRACING_V2}
+      - LANGCHAIN_ENDPOINT=${LANGCHAIN_ENDPOINT}
+      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
+    depends_on:
+      - redis
+      - db
+      - web
+
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: sop_rag_celery_beat
+    restart: unless-stopped
+    command: celery -A sop_rag beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    volumes:
+      - ./backend:/app
+    environment:
+      # Database settings
+      # - DATABASE_ENGINE=${DATABASE_ENGINE}
+      # - DATABASE_NAME=${DATABASE_NAME}              # ✅ Fixed: matches POSTGRES_DB
+      # - DATABASE_USER=${DATABASE_USER}
+      # - DATABASE_PASSWORD=${DATABASE_PASSWORD}
+      # - DATABASE_HOST=${DATABASE_HOST}
+      # - DATABASE_PORT=${DATABASE_PORT}
+      # Celery/Redis settings
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL}   # ✅ Fixed: redis not localhost
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND}
+      - CELERY_CACHE_BACKEND=${CELERY_CACHE_BACKEND}
+      - REDIS_URL=${REDIS_URL}
+      # Vector DB settings
+      - EMBEDDINGS_MODEL=${EMBEDDINGS_MODEL}
+      - CHUNK_SIZE=${CHUNK_SIZE}
+      - CHUNK_OVERLAP=${CHUNK_OVERLAP}
+      - EMBEDDING_DIMENSION=${EMBEDDING_DIMENSION}
+      - VECTOR_STORE=${VECTOR_STORE}
+      # LangChain settings
+      - LANGCHAIN_TRACING_V2=${LANGCHAIN_TRACING_V2}
+      - LANGCHAIN_ENDPOINT=${LANGCHAIN_ENDPOINT}
+      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
+    depends_on:
+      - redis
+      - db
+      - web
+      - celery
+
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      # Remove the 'target' line since Dockerfile is single-stage
+    container_name: sop_rag_frontend
+    restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
@@ -24,5 +168,12 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules
+      - /app/.next
     depends_on:
       - web
+
+volumes:
+  postgres_data:
+  redis_data:
+  media_volume:
+  vectordb_volume:

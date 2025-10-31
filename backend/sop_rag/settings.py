@@ -14,9 +14,6 @@ from pathlib import Path
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
-load_dotenv('.env.local')
-
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')  # Or your preferred path
 MEDIA_URL = '/media/'
@@ -193,8 +190,8 @@ CORS_ALLOW_METHODS = [
 ]
 
 # Celery Configuration
-CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", 'redis://localhost:6379/0')
-# 'redis://localhost:6379/0'
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", 'redis://redis:6379/0/0')
+# 'redis://redis:6379/0/0'
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", 'django-db')  # This works well for storing task results in DB
 
 CELERY_CACHE_BACKEND = os.getenv("CELERY_CACHE_BACKEND", 'django-cache')

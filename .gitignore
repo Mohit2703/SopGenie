@@ -11,3 +11,4 @@ docs/*
 */.env.local
 */media/*
 */.env*
+.env
