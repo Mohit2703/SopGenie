@@ -1,4 +1,4 @@
-# 📚 SOP RAG - AI-Powered Document Q&A System
+# 📚 SopGenie - SOP + Genie (AI wizard) - AI-Powered Document Q&A System
 Transform your Standard Operating Procedures and technical documents into an intelligent, conversational knowledge base using Retrieval Augmented Generation (RAG).
 
 ## 🌟 Features
